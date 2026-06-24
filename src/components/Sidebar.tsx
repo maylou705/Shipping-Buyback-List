@@ -30,7 +30,7 @@ export default function Sidebar({ date, setDate, shipments, inbounds }: Props) {
       {allDates.map(d => (
         <button key={d} onClick={() => setDate(d)} style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          width: '100%', background: 'none', border: 'none',
+          width: '100%', border: 'none',
           textAlign: 'left', cursor: 'pointer', padding: '6px 14px',
           fontSize: 12, borderLeft: `2px solid ${d === date ? 'var(--overseas)' : 'transparent'}`,
           background: d === date ? 'var(--ov-bg)' : 'none',
