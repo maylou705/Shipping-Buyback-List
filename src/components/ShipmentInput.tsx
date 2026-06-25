@@ -1,8 +1,8 @@
 'use client'
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { Shipment, Carrier, CARRIERS, CARRIER_COLOR, FEDEX_OPS, fmt, fmtDate, weekday, uid } from '@/lib/types'
 import { SupabaseClient } from '@supabase/supabase-js'
-
+import { createEcClient } from '@/lib/supabase'
 interface Props {
   supabase: SupabaseClient
   date: string
