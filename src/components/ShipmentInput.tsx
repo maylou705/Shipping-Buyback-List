@@ -30,8 +30,23 @@ function parseOrderLines(text: string) {
 }
 
 export default function ShipmentInput({ supabase, date, shipments, reload }: Props) {
-  
-  
+  const [products, setProducts] = useState<{code: string; name: string}[]>([])
+  const [prodSearch, setProdSearch] = useState('')
+
+  useEffect(() => {
+    const ec = createEcClient()
+    ec.from('product_codes').select('code, name').order('code').then(({ data }) => {
+      if (data) setProducts(data)
+    })
+  }, [])
+
+  const filtered = prodSearch.length >= 1
+    ? products.filter(p =>
+        p.code.toLowerCase().includes(prodSearch.toLowerCase()) ||
+        p.name.toLowerCase().includes(prodSearch.toLowerCase())
+      ).slice(0, 8)
+    : []
+
   const [carrier,    setCarrier]    = useState<Carrier>('FedEx')
   const [domestic,   setDomestic]   = useState(false)
   const [orderNote,  setOrderNote]  = useState('')
