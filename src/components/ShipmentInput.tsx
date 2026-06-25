@@ -30,6 +30,8 @@ function parseOrderLines(text: string) {
 }
 
 export default function ShipmentInput({ supabase, date, shipments, reload }: Props) {
+  
+  
   const [carrier,    setCarrier]    = useState<Carrier>('FedEx')
   const [domestic,   setDomestic]   = useState(false)
   const [orderNote,  setOrderNote]  = useState('')
@@ -274,7 +276,31 @@ export default function ShipmentInput({ supabase, date, shipments, reload }: Pro
               {/* 商品行 */}
               {pack.items.map((item, ii) => (
                 <div key={ii} style={{ display: 'grid', gridTemplateColumns: '2fr 60px 80px 70px 80px', gap: 6, padding: '8px 14px', borderBottom: '1px solid var(--border)', alignItems: 'end' }}>
-                  <div className="fg"><label>{ii === 0 ? '商品名' : `商品名 ${ii + 1}`}</label><input value={item.prod} onChange={e => updateItem(pi, ii, { prod: e.target.value })} placeholder="例: dream, ninja..." /></div>
+                  <div className="fg" style={{ position: 'relative' }}>
+  <label>{ii === 0 ? '商品名' : `商品名 ${ii + 1}`}</label>
+  <input
+    value={item.prod}
+    onChange={e => { updateItem(pi, ii, { prod: e.target.value }); setProdSearch(e.target.value) }}
+    onFocus={e => setProdSearch(e.target.value)}
+    onBlur={() => setTimeout(() => setProdSearch(''), 200)}
+    placeholder="商品名またはコードで検索..."
+  />
+  {filtered.length > 0 && item.prod === prodSearch && (
+    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'var(--surface)', border: '1.5px solid var(--overseas)', borderRadius: 'var(--radius-sm)', zIndex: 100, boxShadow: '0 4px 12px rgba(0,0,0,.1)', maxHeight: 220, overflowY: 'auto' }}>
+      {filtered.map(p => (
+        <div key={p.code}
+          onMouseDown={() => { updateItem(pi, ii, { prod: p.name }); setProdSearch('') }}
+          style={{ padding: '7px 12px', cursor: 'pointer', fontSize: 12, borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 10 }}
+          onMouseEnter={e => (e.currentTarget.style.background = 'var(--ov-bg)')}
+          onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+        >
+          <span style={{ fontSize: 10, color: 'var(--text3)', minWidth: 60 }}>{p.code}</span>
+          <span style={{ color: 'var(--text)', fontWeight: 600 }}>{p.name}</span>
+        </div>
+      ))}
+    </div>
+  )}
+</div>
                   <div className="fg"><label>個数</label><input type="number" value={item.qty} onChange={e => updateItem(pi, ii, { qty: e.target.value })} placeholder="0" /></div>
                   <div className="fg"><label>単価 (¥)</label><input type="number" value={item.price} onChange={e => updateItem(pi, ii, { price: e.target.value })} placeholder="0" /></div>
                   <div className="fg"><label>重量 (kg)</label><input type="number" value={item.weight} onChange={e => updateItem(pi, ii, { weight: e.target.value })} step="0.01" placeholder="0.3" /></div>
