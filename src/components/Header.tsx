@@ -21,7 +21,7 @@ export default function Header({ view, setView }: { view: View; setView: (v: Vie
       position: 'sticky', top: 0, zIndex: 200,
     }}>
       <span style={{ fontSize: 14, fontWeight: 800, letterSpacing: '.06em', marginRight: 14, whiteSpace: 'nowrap' }}>
-        LIQOA <em style={{ color: 'var(--overseas)', fontStyle: 'normal' }}>Ship</em>
+        Shipping <em style={{ color: 'var(--overseas)', fontStyle: 'normal' }}>Buyback List</em>
       </span>
       <nav style={{ display: 'flex', gap: 2 }}>
         {NAVS.map(({ v, label }) => (
