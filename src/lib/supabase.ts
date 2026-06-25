@@ -9,7 +9,7 @@ export function createClient() {
 
 export function createEcClient() {
   return createBrowserClient(
-    process.env.NEXT_PUBLIC_EC_SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_EC_SUPABASE_ANON_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    'https://xiclvtzoakjvulnsesqd.supabase.co',
+    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhpY2x2dHpvYWtqdnVsbnNlc3FkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMzMTM4ODQsImV4cCI6MjA4ODg4OTg4NH0.pdgyLvMi958xurCdTBqau2iYDEy_CW4X5Lxy4dkAdGA'
   )
 }
