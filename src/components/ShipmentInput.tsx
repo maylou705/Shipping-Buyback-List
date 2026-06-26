@@ -302,7 +302,7 @@ export default function ShipmentInput({ supabase, date, shipments, reload }: Pro
     placeholder="商品名またはコードで検索..."
   />
   {filtered.length > 0 && item.prod === prodSearch && (
-    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'var(--surface)', border: '1.5px solid var(--overseas)', borderRadius: 'var(--radius-sm)', zIndex: 100, boxShadow: '0 4px 12px rgba(0,0,0,.1)', maxHeight: 220, overflowY: 'auto' }}>
+    <div style={{ position: 'absolute', top: '100%', left: 0, minWidth: 320, background: 'var(--surface)', border: '1.5px solid var(--overseas)', borderRadius: 'var(--radius-sm)', zIndex: 1000, boxShadow: '0 4px 12px rgba(0,0,0,.1)', maxHeight: 320, overflowY: 'auto' }}>
       {filtered.map(p => (
         <div key={p.code}
           onMouseDown={() => { updateItem(pi, ii, { prod: p.name }); setProdSearch('') }}
