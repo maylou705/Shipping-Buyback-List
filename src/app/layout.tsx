@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'LIQOA Ship',
+  title: 'Shipping Buyback List',
   description: '発送管理システム',
 }
 
