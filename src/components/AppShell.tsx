@@ -10,8 +10,9 @@ import ShipmentInput from './ShipmentInput'
 import InboundInput from './InboundInput'
 import ListView from './ListView'
 import Analytics from './Analytics'
+import InventoryImport from './InventoryImport'
 
-export type View = 'dashboard' | 'shipment' | 'inbound' | 'list' | 'analytics'
+export type View = 'dashboard' | 'shipment' | 'inbound' | 'list' | 'analytics' | 'inventory'
 
 export default function AppShell() {
   const supabase = createClient()
@@ -63,6 +64,7 @@ export default function AppShell() {
           {view === 'inbound'   && <InboundInput {...props} />}
           {view === 'list'      && <ListView {...props} />}
           {view === 'analytics' && <Analytics {...props} />}
+{view === 'inventory' && <InventoryImport supabase={props.supabase} onImported={load} />}
         </main>
       </div>
     </div>
