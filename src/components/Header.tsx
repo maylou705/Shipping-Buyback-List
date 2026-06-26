@@ -7,8 +7,8 @@ const NAVS: { v: View; label: string }[] = [
   { v: 'inbound',   label: '入荷入力' },
   { v: 'list',      label: '一覧' },
   { v: 'analytics', label: '分析' },
+  { v: 'inventory', label: '在庫' },
 ]
-
 export default function Header({ view, setView }: { view: View; setView: (v: View) => void }) {
   const dateStr = new Date().toLocaleDateString('ja-JP', {
     year: 'numeric', month: 'long', day: 'numeric', weekday: 'long',
