@@ -1,7 +1,8 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Inbound, InbSection, INB_SECTION_LABEL, fmt, fmtDate, weekday, uid } from '@/lib/types'
 import { SupabaseClient } from '@supabase/supabase-js'
+import { createEcClient } from '@/lib/supabase'
 
 interface Props {
   supabase: SupabaseClient
