@@ -259,7 +259,7 @@ export default function ShipmentInput({ supabase, date, shipments, reload }: Pro
 
           // 入力中
           return (
-            <div key={pack.packNo} style={{ background: 'var(--surface)', border: `2px solid ${col}`, borderRadius: 'var(--radius)', marginBottom: 12, overflow: 'hidden', boxShadow: '0 2px 10px rgba(0,0,0,.06)' }}>
+            <div key={pack.packNo} style={{ background: 'var(--surface)', border: `2px solid ${col}`, borderRadius: 'var(--radius)', marginBottom: 12, overflow: 'visible', boxShadow: '0 2px 10px rgba(0,0,0,.06)' }}>
               {/* ヘッダ */}
               <div style={{ background: 'var(--sf2)', borderBottom: '1px solid var(--border)', padding: '8px 14px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
                 <span style={{ fontSize: 13, fontWeight: 800, color: col }}>梱包 {pack.packNo}</span>
