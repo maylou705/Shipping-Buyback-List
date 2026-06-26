@@ -33,12 +33,22 @@ export default function ShipmentInput({ supabase, date, shipments, reload }: Pro
   const [products, setProducts] = useState<{code: string; name: string}[]>([])
   const [prodSearch, setProdSearch] = useState('')
 
- useEffect(() => {
+ const [inventory, setInventory] = useState<Record<string, number>>({})
+
+  useEffect(() => {
     const ec = createEcClient()
-    console.log('EC URL:', 'https://xiclvtzoakjvulnsesqd.supabase.co')
-    ec.from('product_codes').select('code, name').order('code').then(({ data, error }) => {
-      console.log('products loaded:', data?.length, error)
+    ec.from('product_codes').select('code, name').order('code').then(({ data }) => {
       if (data) setProducts(data)
+    })
+    // 在庫データ取得
+    supabase.from('inventory').select('product_code, qty').then(({ data }) => {
+      if (data) {
+        const map: Record<string, number> = {}
+        data.forEach(r => {
+          map[r.product_code] = (map[r.product_code] || 0) + r.qty
+        })
+        setInventory(map)
+      }
     })
   }, [])
   const filtered = prodSearch.length >= 1
@@ -311,7 +321,17 @@ export default function ShipmentInput({ supabase, date, shipments, reload }: Pro
           onMouseLeave={e => (e.currentTarget.style.background = 'none')}
         >
           <span style={{ fontSize: 10, color: 'var(--text3)', minWidth: 60 }}>{p.code}</span>
-          <span style={{ color: 'var(--text)', fontWeight: 600 }}>{p.name}</span>
+          <span style={{ color: 'var(--text)', fontWeight: 600, flex: 1 }}>{p.name}</span>
+          {inventory[p.code] !== undefined && (
+            <span style={{
+              fontSize: 10, padding: '1px 6px', borderRadius: 8, whiteSpace: 'nowrap',
+              background: inventory[p.code] > 0 ? 'var(--ov-bg)' : '#FEF2F2',
+              color: inventory[p.code] > 0 ? 'var(--overseas)' : 'var(--danger)',
+              border: `1px solid ${inventory[p.code] > 0 ? 'var(--ov-bd)' : '#FACACA'}`,
+            }}>
+              在庫 {inventory[p.code]}
+            </span>
+          )}
         </div>
       ))}
     </div>
