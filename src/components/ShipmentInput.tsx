@@ -33,13 +33,14 @@ export default function ShipmentInput({ supabase, date, shipments, reload }: Pro
   const [products, setProducts] = useState<{code: string; name: string}[]>([])
   const [prodSearch, setProdSearch] = useState('')
 
-  useEffect(() => {
+ useEffect(() => {
     const ec = createEcClient()
-    ec.from('product_codes').select('code, name').order('code').then(({ data }) => {
+    console.log('EC URL:', 'https://xiclvtzoakjvulnsesqd.supabase.co')
+    ec.from('product_codes').select('code, name').order('code').then(({ data, error }) => {
+      console.log('products loaded:', data?.length, error)
       if (data) setProducts(data)
     })
   }, [])
-
   const filtered = prodSearch.length >= 1
     ? products.filter(p =>
         p.code.toLowerCase().includes(prodSearch.toLowerCase()) ||
