@@ -1,6 +1,7 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { SupabaseClient } from '@supabase/supabase-js'
+import { createEcClient } from '@/lib/supabase'
 import { fmt } from '@/lib/types'
 
 interface Props {
@@ -19,6 +20,8 @@ interface InvRow {
   cost: number
   arrived_at: string
 }
+
+interface PC { id: number | string; code: string; name: string; product_code: string | null }
 
 function parseCSV(text: string): InvRow[] {
   const lines = text.split('\n').filter(l => l.trim())
@@ -54,6 +57,14 @@ export default function InventoryImport({ supabase, onImported }: Props) {
   const [status,   setStatus]   = useState<'idle'|'loading'|'done'|'error'>('idle')
   const [message,  setMessage]  = useState('')
   const [preview,  setPreview]  = useState<InvRow[]>([])
+  const [productCodes, setProductCodes] = useState<PC[]>([])
+  const [linkMap, setLinkMap] = useState<Record<string, string>>({}) // product_code(PD..) -> product_codes.id
+
+  useEffect(() => {
+    createEcClient().from('product_codes').select('id, code, name, product_code').then(({ data }) => {
+      if (data) setProductCodes(data)
+    })
+  }, [])
 
   const processFile = async (file: File) => {
     if (!file.name.endsWith('.csv')) {
@@ -67,7 +78,24 @@ export default function InventoryImport({ supabase, onImported }: Props) {
     }
     setPreview(rows)
     setStatus('done')
-    setMessage(`${rows.length}件のデータを読み込みました。「インポート実行」を押してください。`)
+    setMessage(`${rows.length}件のデータを読み込みました。`)
+  }
+
+  // 未紐付け商品コード一覧（重複除去・商品名つき）
+  const linkedPdSet = new Set(productCodes.filter(p => p.product_code).map(p => p.product_code))
+  const unlinkedMap = new Map<string, string>() // pdCode -> productName
+  preview.forEach(r => {
+    if (r.product_code && !linkedPdSet.has(r.product_code) && !linkMap[r.product_code]) {
+      unlinkedMap.set(r.product_code, r.product_name)
+    }
+  })
+  const unlinked = [...unlinkedMap.entries()]
+
+  const linkProduct = async (pdCode: string, pcId: string | number) => {
+    await createEcClient().from('product_codes').update({ product_code: pdCode }).eq('id', pcId)
+    setLinkMap(p => ({ ...p, [pdCode]: String(pcId) }))
+    // ローカルのproductCodesも更新
+    setProductCodes(prev => prev.map(p => p.id === pcId ? { ...p, product_code: pdCode } : p))
   }
 
   const doImport = async () => {
@@ -77,7 +105,6 @@ export default function InventoryImport({ supabase, onImported }: Props) {
     const today = now.toISOString().split('T')[0]
     const timestamp = now.toISOString()
 
-    // 同じ日に複数回インポートした場合は今日の分だけ削除（同日の最新版に更新）
     await supabase.from('inventory').delete().eq('imported_at', today)
 
     const chunk = 50
@@ -141,6 +168,35 @@ export default function InventoryImport({ supabase, onImported }: Props) {
           fontSize: 12, fontWeight: 700,
         }}>
           {status === 'loading' && '⏳ '}{message}
+        </div>
+      )}
+
+      {/* 未紐付け商品の警告＆紐付けUI */}
+      {unlinked.length > 0 && (
+        <div className="card" style={{ marginBottom: 16, borderColor: 'var(--dhl-bd)' }}>
+          <div className="card-head" style={{ background: 'var(--dhl-bg)', color: 'var(--dhl)' }}>
+            ⚠ 未紐付け商品（{unlinked.length}件） — マスターと紐付けてください
+          </div>
+          <div style={{ padding: 0 }}>
+            {unlinked.map(([pdCode, name]) => (
+              <div key={pdCode} style={{ padding: '10px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <div style={{ flex: 1, minWidth: 200 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700 }}>{name}</div>
+                  <div style={{ fontSize: 10, color: 'var(--text3)' }}>{pdCode}</div>
+                </div>
+                <select
+                  defaultValue=""
+                  onChange={e => { if (e.target.value) linkProduct(pdCode, e.target.value) }}
+                  style={{ fontSize: 12, padding: '6px 10px', border: '1.5px solid var(--border)', borderRadius: 'var(--radius-sm)', minWidth: 220 }}
+                >
+                  <option value="">マスター商品を選択して紐付け...</option>
+                  {productCodes.map(p => (
+                    <option key={p.id} value={p.id}>{p.code} — {p.name}</option>
+                  ))}
+                </select>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
