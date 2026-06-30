@@ -73,21 +73,28 @@ export default function InventoryImport({ supabase, onImported }: Props) {
   const doImport = async () => {
     if (!preview.length) return
     setStatus('loading'); setMessage('インポート中...')
-    const today = new Date().toISOString().split('T')[0]
+    const now = new Date()
+    const today = now.toISOString().split('T')[0]
+    const timestamp = now.toISOString()
 
-    // 今日のデータを削除して入れ直す
+    // 同じ日に複数回インポートした場合は今日の分だけ削除（同日の最新版に更新）
     await supabase.from('inventory').delete().eq('imported_at', today)
 
     const chunk = 50
     for (let i = 0; i < preview.length; i += chunk) {
-      const batch = preview.slice(i, i + chunk).map(r => ({ ...r, imported_at: today }))
+      const batch = preview.slice(i, i + chunk).map(r => ({
+        ...r,
+        id: `inv_${today}_${r.stock_id}`,
+        imported_at: today,
+        created_at: timestamp,
+      }))
       const { error } = await supabase.from('inventory').insert(batch)
       if (error) {
         setStatus('error'); setMessage('エラー: ' + error.message); return
       }
     }
     setStatus('done')
-    setMessage(`✓ ${preview.length}件をインポートしました！`)
+    setMessage(`✓ ${preview.length}件をインポートしました！（${today}分として記録）`)
     setPreview([])
     onImported()
   }
