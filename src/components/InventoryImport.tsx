@@ -281,28 +281,25 @@ export default function InventoryImport({ supabase, onImported }: Props) {
                       <thead>
                         <tr>
                           <th style={{ minWidth: 180 }}>商品名</th>
-                          {GRADE_COLS.map(c => <th key={c.key} style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{c.label}</th>)}
-                          <th style={{ textAlign: 'right' }}>合計</th>
+                          {GRADE_COLS.map(c => <th key={c.key} style={{ textAlign: 'right', whiteSpace: 'nowrap', width: 100 }}>{c.label}</th>)}
                         </tr>
                       </thead>
                       <tbody>
                         {catRows.map(r => {
-                          const total = Object.values(r.gradeQty).reduce((a, q) => a + q, 0)
                           return (
                             <tr key={r.productId}>
-                              <td>
+                              <td style={{ minWidth: 200 }}>
                                 <div style={{ fontWeight: 600, fontSize: 12 }}>{r.name}</div>
                                 <div style={{ fontSize: 10, color: 'var(--text3)' }}>{r.name_en}</div>
                               </td>
                               {GRADE_COLS.map(c => {
                                 const qty = r.gradeQty[c.key]
                                 return (
-                                  <td key={c.key} style={{ textAlign: 'right', fontWeight: qty ? 700 : 400, color: qty ? 'var(--overseas)' : 'var(--text3)', fontSize: 13 }}>
+                                  <td key={c.key} style={{ textAlign: 'right', width: 100, fontWeight: qty ? 700 : 400, color: qty ? 'var(--overseas)' : 'var(--text3)', fontSize: 13 }}>
                                     {qty !== undefined ? fmt(qty) : '—'}
                                   </td>
                                 )
                               })}
-                              <td style={{ textAlign: 'right', fontWeight: 800, color: 'var(--text)', fontSize: 13 }}>{fmt(total)}</td>
                             </tr>
                           )
                         })}
