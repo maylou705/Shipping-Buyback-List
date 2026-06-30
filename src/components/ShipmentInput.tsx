@@ -30,37 +30,59 @@ function parseOrderLines(text: string) {
   }).filter(r => r.label)
 }
 
-interface ProductMaster { id: string; name: string; short_code: string | null; recore_pd_codes: string[] }
+interface ProductMaster { id: string; unit_type: string; short_code: string | null; recore_pd_code: string | null; grade: string }
 
 export default function ShipmentInput({ supabase, date, shipments, reload }: Props) {
-  const [products, setProducts] = useState<{code: string; name: string}[]>([])
+  const [products, setProducts] = useState<{code: string; name: string; recore_pd_code?: string | null; grade?: string; unit_type?: string}[]>([])
   const [productMaster, setProductMaster] = useState<ProductMaster[]>([])
   const [prodSearch, setProdSearch] = useState('')
   const [inventoryByPd, setInventoryByPd] = useState<Record<string, number>>({})
 
   useEffect(() => {
     const quote = createQuoteClient()
-    quote.from('products').select('id, name, short_code, recore_pd_codes').then(({ data }) => {
-      if (data) {
-        setProducts(data.map((p: any) => ({ code: p.short_code || p.name, name: p.name })))
-        setProductMaster(data as ProductMaster[])
+    // product_unitsからshort_code・grade・recore_pd_codeを取得
+    quote.from('product_units').select('id, product_id, unit_type, short_code, grade, recore_pd_code').then(({ data: units }) => {
+      if (units) {
+        const items = units
+          .filter((u: any) => u.short_code) // short_codeが設定されているもののみ
+          .map((u: any) => ({
+            code: u.short_code,
+            name: u.short_code,
+            recore_pd_code: u.recore_pd_code,
+            grade: u.grade,
+            unit_type: u.unit_type,
+          }))
+        setProducts(items)
+        setProductMaster(units as any)
       }
     })
-    supabase.from('inventory').select('product_code, qty').then(({ data: inv }) => {
+    supabase.from('inventory').select('product_code, grade, qty').then(({ data: inv }) => {
       if (inv) {
         const pdMap: Record<string, number> = {}
-        inv.forEach((r: any) => { pdMap[r.product_code] = (pdMap[r.product_code] || 0) + r.qty })
+        inv.forEach((r: any) => {
+          const key = `${r.product_code}__${r.grade}`
+          pdMap[key] = (pdMap[key] || 0) + r.qty
+        })
         setInventoryByPd(pdMap)
       }
     })
   }, [])
 
   const getInventory = (codeOrName: string): number | undefined => {
-    const master = productMaster.find(p => (p.short_code || p.name) === codeOrName)
-    if (!master || !master.recore_pd_codes?.length) return undefined
-    return master.recore_pd_codes.reduce((sum, pd) => sum + (inventoryByPd[pd] || 0), 0)
+    const unit = products.find(p => p.code === codeOrName) as any
+    if (!unit?.recore_pd_code) return undefined
+    // リコアのグレード名に変換
+    const gradeMap: Record<string, string> = {
+      '無印': 'シュリンク有',
+      'シュリンク無': 'シュリンク無',
+      '★シュリ': '★',
+      'ぺリなし': 'その他',
+    }
+    const recoreGrade = gradeMap[unit.grade] || unit.grade
+    const key = `${unit.recore_pd_code}__${recoreGrade}`
+    const qty = inventoryByPd[key]
+    return qty !== undefined ? qty : undefined
   }
-
   const filtered = prodSearch.length >= 1
     ? products.filter(p =>
         p.code.toLowerCase().includes(prodSearch.toLowerCase()) ||
