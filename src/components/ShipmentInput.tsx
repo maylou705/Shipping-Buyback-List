@@ -3,6 +3,7 @@ import { useState, useRef, useEffect } from 'react'
 import { Shipment, Carrier, CARRIERS, CARRIER_COLOR, FEDEX_OPS, fmt, fmtDate, weekday, uid } from '@/lib/types'
 import { SupabaseClient } from '@supabase/supabase-js'
 import { createQuoteClient } from '@/lib/supabase'
+
 interface Props {
   supabase: SupabaseClient
   date: string
@@ -29,28 +30,37 @@ function parseOrderLines(text: string) {
   }).filter(r => r.label)
 }
 
+interface ProductMaster { id: string; name: string; short_code: string | null; recore_pd_codes: string[] }
+
 export default function ShipmentInput({ supabase, date, shipments, reload }: Props) {
   const [products, setProducts] = useState<{code: string; name: string}[]>([])
+  const [productMaster, setProductMaster] = useState<ProductMaster[]>([])
   const [prodSearch, setProdSearch] = useState('')
-
- const [inventory, setInventory] = useState<Record<string, number>>({})
+  const [inventoryByPd, setInventoryByPd] = useState<Record<string, number>>({})
 
   useEffect(() => {
-    const ec = createEcClient()
-    ec.from('product_codes').select('code, name').order('code').then(({ data }) => {
-      if (data) setProducts(data)
-    })
-    // 在庫データ取得
-    supabase.from('inventory').select('product_code, qty').then(({ data }) => {
+    const quote = createQuoteClient()
+    quote.from('products').select('id, name, short_code, recore_pd_codes').then(({ data }) => {
       if (data) {
-        const map: Record<string, number> = {}
-        data.forEach(r => {
-          map[r.product_code] = (map[r.product_code] || 0) + r.qty
-        })
-        setInventory(map)
+        setProducts(data.map((p: any) => ({ code: p.short_code || p.name, name: p.name })))
+        setProductMaster(data as ProductMaster[])
+      }
+    })
+    supabase.from('inventory').select('product_code, qty').then(({ data: inv }) => {
+      if (inv) {
+        const pdMap: Record<string, number> = {}
+        inv.forEach((r: any) => { pdMap[r.product_code] = (pdMap[r.product_code] || 0) + r.qty })
+        setInventoryByPd(pdMap)
       }
     })
   }, [])
+
+  const getInventory = (codeOrName: string): number | undefined => {
+    const master = productMaster.find(p => (p.short_code || p.name) === codeOrName)
+    if (!master || !master.recore_pd_codes?.length) return undefined
+    return master.recore_pd_codes.reduce((sum, pd) => sum + (inventoryByPd[pd] || 0), 0)
+  }
+
   const filtered = prodSearch.length >= 1
     ? products.filter(p =>
         p.code.toLowerCase().includes(prodSearch.toLowerCase()) ||
@@ -72,7 +82,6 @@ export default function ShipmentInput({ supabase, date, shipments, reload }: Pro
   const isFedex = carrier === 'FedEx'
   const dayShips = shipments.filter(s => s.date === date && s.carrier === carrier)
 
-  // 保存済みの商品名ごとの合計数量
   const savedQtyMap: Record<string, number> = {}
   dayShips.forEach(s => {
     const k = (s.product_name || '').toLowerCase()
@@ -91,7 +100,6 @@ export default function ShipmentInput({ supabase, date, shipments, reload }: Pro
 
   const addPack = () => {
     const max = Math.max(...packs.map(g => g.packNo))
-    const prev = packs[packs.length - 1]
     setPacks(p => [...p, { ...mkPack(max + 1), op: lastOpRef.current, freight: lastFrRef.current }])
   }
 
@@ -108,7 +116,6 @@ export default function ShipmentInput({ supabase, date, shipments, reload }: Pro
     if (pack.op) lastOpRef.current = pack.op
     if (pack.freight) lastFrRef.current = pack.freight
 
-    // 同梱包の既存データを削除（上書き）
     await supabase.from('shipments')
       .delete()
       .eq('date', date).eq('carrier', carrier).eq('pack_no', pack.packNo)
@@ -151,14 +158,11 @@ export default function ShipmentInput({ supabase, date, shipments, reload }: Pro
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '300px 1fr', height: 'calc(100vh - 52px)', overflow: 'hidden' }}>
 
-      {/* 左: 元オーダーパネル */}
       <div style={{ background: 'var(--surface)', borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        {/* 宛先名・代行者名 */}
         <div style={{ padding: '8px 14px', borderBottom: '1px solid var(--border)', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
           <div className="fg"><label>宛先名</label><input value={recvGlobal} onChange={e => setRecvGlobal(e.target.value)} placeholder="会社名 / 個人名" /></div>
           <div className="fg"><label>代行者名</label><input value={agentGlobal} onChange={e => setAgentGlobal(e.target.value)} placeholder="代行者名" /></div>
         </div>
-        {/* 元オーダーヘッダ */}
         <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--border)', background: 'var(--ov-bg)' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
             <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--overseas)' }}>📋 元オーダー</span>
@@ -172,7 +176,6 @@ export default function ShipmentInput({ supabase, date, shipments, reload }: Pro
             style={{ width: '100%', background: 'var(--surface)', border: '1.5px solid var(--ov-bd)', borderRadius: 'var(--radius-sm)', padding: '8px 10px', fontSize: 12, lineHeight: 1.85, resize: 'none', outline: 'none', color: 'var(--text)', fontFamily: 'inherit' }}
           />
         </div>
-        {/* 残数プレビュー */}
         <div style={{ flex: 1, overflowY: 'auto', fontSize: 12 }}>
           {orderLines.length === 0
             ? <div style={{ padding: '14px', fontSize: 11, color: 'var(--text3)', textAlign: 'center' }}>元オーダーを入力すると残数を表示</div>
@@ -211,7 +214,6 @@ export default function ShipmentInput({ supabase, date, shipments, reload }: Pro
               })
           }
         </div>
-        {/* 残り・持ち越し */}
         <div style={{ borderTop: '1px solid var(--border)', padding: '10px 14px', background: '#FEFBEC' }}>
           <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--warn)', marginBottom: 5 }}>⚠ 残り・持ち越し</div>
           <textarea value={carryOver} onChange={e => setCarryOver(e.target.value)} rows={2}
@@ -221,9 +223,7 @@ export default function ShipmentInput({ supabase, date, shipments, reload }: Pro
         </div>
       </div>
 
-      {/* 右: 梱包入力 */}
       <div style={{ overflowY: 'auto', padding: '16px 18px' }}>
-        {/* 配送会社タブ */}
         <div style={{ display: 'flex', gap: 4, marginBottom: 14, flexWrap: 'wrap' }}>
           {CARRIERS.map(c => (
             <button key={c} onClick={() => setCarrier(c)} style={{
@@ -238,13 +238,11 @@ export default function ShipmentInput({ supabase, date, shipments, reload }: Pro
           ))}
         </div>
 
-        {/* 梱包カード */}
         {packs.map((pack, pi) => {
           const { amt, w } = packTotal(pack)
           const savedRows = dayShips.filter(s => s.pack_no === pack.packNo)
 
           if (pack.done) {
-            // 完了済み（縮む）
             return (
               <div key={pack.packNo} style={{ background: 'var(--surface)', border: '1.5px solid var(--border)', borderRadius: 'var(--radius)', marginBottom: 10, overflow: 'hidden' }}>
                 <div style={{ padding: '8px 14px', display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }} onClick={() => updatePack(pi, { done: false })}>
@@ -267,10 +265,8 @@ export default function ShipmentInput({ supabase, date, shipments, reload }: Pro
             )
           }
 
-          // 入力中
           return (
             <div key={pack.packNo} style={{ background: 'var(--surface)', border: `2px solid ${col}`, borderRadius: 'var(--radius)', marginBottom: 12, overflow: 'visible', boxShadow: '0 2px 10px rgba(0,0,0,.06)' }}>
-              {/* ヘッダ */}
               <div style={{ background: 'var(--sf2)', borderBottom: '1px solid var(--border)', padding: '8px 14px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
                 <span style={{ fontSize: 13, fontWeight: 800, color: col }}>梱包 {pack.packNo}</span>
                 {(amt > 0 || w > 0) && <span style={{ fontSize: 11, color: 'var(--text2)' }}>商品計 <strong style={{ color: col }}>¥{fmt(amt)}</strong> / {w.toFixed(2)}kg</span>}
@@ -279,7 +275,6 @@ export default function ShipmentInput({ supabase, date, shipments, reload }: Pro
                 )}
               </div>
 
-              {/* 共通情報 */}
               <div style={{ padding: '10px 14px', display: 'grid', gridTemplateColumns: `1fr 1fr 1fr 80px${isFedex ? ' 2fr' : ''}`, gap: 10, borderBottom: '1px solid var(--border)' }}>
                 <div className="fg"><label>問番</label><input value={pack.track} onChange={e => updatePack(pi, { track: e.target.value })} placeholder="追跡番号" /></div>
                 <div className="fg">
@@ -299,44 +294,43 @@ export default function ShipmentInput({ supabase, date, shipments, reload }: Pro
                 )}
               </div>
 
-              {/* 商品行 */}
               {pack.items.map((item, ii) => (
                 <div key={ii} style={{ display: 'grid', gridTemplateColumns: '2fr 60px 80px 70px 80px', gap: 6, padding: '8px 14px', borderBottom: '1px solid var(--border)', alignItems: 'end' }}>
                   <div className="fg" style={{ position: 'relative' }}>
-  <label>{ii === 0 ? '商品名' : `商品名 ${ii + 1}`}</label>
-  <input
-    value={item.prod}
-    onChange={e => { updateItem(pi, ii, { prod: e.target.value }); setProdSearch(e.target.value) }}
-    onFocus={e => setProdSearch(e.target.value)}
-    onBlur={() => setTimeout(() => setProdSearch(''), 200)}
-    placeholder="商品名またはコードで検索..."
-  />
-  {filtered.length > 0 && item.prod === prodSearch && (
-    <div style={{ position: 'absolute', top: '100%', left: 0, minWidth: 320, background: 'var(--surface)', border: '1.5px solid var(--overseas)', borderRadius: 'var(--radius-sm)', zIndex: 1000, boxShadow: '0 4px 12px rgba(0,0,0,.1)', maxHeight: 320, overflowY: 'auto' }}>
-      {filtered.map(p => (
-        <div key={p.code}
-          onMouseDown={() => { updateItem(pi, ii, { prod: p.name }); setProdSearch('') }}
-          style={{ padding: '7px 12px', cursor: 'pointer', fontSize: 12, borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 10 }}
-          onMouseEnter={e => (e.currentTarget.style.background = 'var(--ov-bg)')}
-          onMouseLeave={e => (e.currentTarget.style.background = 'none')}
-        >
-          <span style={{ fontSize: 10, color: 'var(--text3)', minWidth: 60 }}>{p.code}</span>
-          <span style={{ color: 'var(--text)', fontWeight: 600, flex: 1 }}>{p.name}</span>
-          {inventory[p.code] !== undefined && (
-            <span style={{
-              fontSize: 10, padding: '1px 6px', borderRadius: 8, whiteSpace: 'nowrap',
-              background: inventory[p.code] > 0 ? 'var(--ov-bg)' : '#FEF2F2',
-              color: inventory[p.code] > 0 ? 'var(--overseas)' : 'var(--danger)',
-              border: `1px solid ${inventory[p.code] > 0 ? 'var(--ov-bd)' : '#FACACA'}`,
-            }}>
-              在庫 {inventory[p.code]}
-            </span>
-          )}
-        </div>
-      ))}
-    </div>
-  )}
-</div>
+                    <label>{ii === 0 ? '商品名' : `商品名 ${ii + 1}`}</label>
+                    <input
+                      value={item.prod}
+                      onChange={e => { updateItem(pi, ii, { prod: e.target.value }); setProdSearch(e.target.value) }}
+                      onFocus={e => setProdSearch(e.target.value)}
+                      onBlur={() => setTimeout(() => setProdSearch(''), 200)}
+                      placeholder="商品名またはコードで検索..."
+                    />
+                    {filtered.length > 0 && item.prod === prodSearch && (
+                      <div style={{ position: 'absolute', top: '100%', left: 0, minWidth: 320, background: 'var(--surface)', border: '1.5px solid var(--overseas)', borderRadius: 'var(--radius-sm)', zIndex: 1000, boxShadow: '0 4px 12px rgba(0,0,0,.1)', maxHeight: 320, overflowY: 'auto' }}>
+                        {filtered.map(p => (
+                          <div key={p.code}
+                            onMouseDown={() => { updateItem(pi, ii, { prod: p.name }); setProdSearch('') }}
+                            style={{ padding: '7px 12px', cursor: 'pointer', fontSize: 12, borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 10 }}
+                            onMouseEnter={e => (e.currentTarget.style.background = 'var(--ov-bg)')}
+                            onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+                          >
+                            <span style={{ fontSize: 10, color: 'var(--text3)', minWidth: 60 }}>{p.code}</span>
+                            <span style={{ color: 'var(--text)', fontWeight: 600, flex: 1 }}>{p.name}</span>
+                            {getInventory(p.code) !== undefined && (
+                              <span style={{
+                                fontSize: 10, padding: '1px 6px', borderRadius: 8, whiteSpace: 'nowrap',
+                                background: getInventory(p.code)! > 0 ? 'var(--ov-bg)' : '#FEF2F2',
+                                color: getInventory(p.code)! > 0 ? 'var(--overseas)' : 'var(--danger)',
+                                border: `1px solid ${getInventory(p.code)! > 0 ? 'var(--ov-bd)' : '#FACACA'}`,
+                              }}>
+                                在庫 {getInventory(p.code)}
+                              </span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                   <div className="fg"><label>個数</label><input type="number" value={item.qty} onChange={e => updateItem(pi, ii, { qty: e.target.value })} placeholder="0" /></div>
                   <div className="fg"><label>単価 (¥)</label><input type="number" value={item.price} onChange={e => updateItem(pi, ii, { price: e.target.value })} placeholder="0" /></div>
                   <div className="fg"><label>重量 (kg)</label><input type="number" value={item.weight} onChange={e => updateItem(pi, ii, { weight: e.target.value })} step="0.01" placeholder="0.3" /></div>
@@ -347,7 +341,6 @@ export default function ShipmentInput({ supabase, date, shipments, reload }: Pro
                 </div>
               ))}
 
-              {/* フッター */}
               <div style={{ padding: '8px 14px', display: 'flex', alignItems: 'center', gap: 10, background: 'var(--sf2)', borderTop: '1px solid var(--border)' }}>
                 <button onClick={() => addItem(pi)} style={{ fontSize: 11, padding: '4px 12px', border: '1.5px dashed var(--border2)', borderRadius: 'var(--radius-sm)', background: 'none', cursor: 'pointer', color: 'var(--text2)', whiteSpace: 'nowrap' }}>
                   ＋ 商品行を追加
@@ -363,13 +356,9 @@ export default function ShipmentInput({ supabase, date, shipments, reload }: Pro
           )
         })}
 
-        {/* 梱包追加ボタン */}
         <button onClick={addPack} style={{ width: '100%', padding: 10, border: '2px dashed var(--border2)', borderRadius: 'var(--radius)', background: 'none', color: 'var(--text2)', fontSize: 12, fontWeight: 700, cursor: 'pointer', marginBottom: 14 }}>
           ＋ 梱包を追加
         </button>
-
-        {/* ダッシュボードへ */}
-        <button onClick={() => window.location.reload()} style={{ display: 'none' }} />
       </div>
     </div>
   )
