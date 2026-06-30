@@ -203,7 +203,7 @@ export default function InboundInput({ supabase, date, inbounds, reload }: Props
             </div>
 
             {/* 商品明細 */}
-            <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', overflow: 'hidden', marginBottom: 12 }}>
+            <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', overflow: 'visible', marginBottom: 12 }}>
               <div style={{ background: 'var(--sf2)', padding: '6px 12px', fontSize: 10, fontWeight: 700, color: 'var(--text2)' }}>商品明細</div>
               {items.map((item, i) => (
                 <div key={i} style={{ display: 'grid', gridTemplateColumns: '2fr 60px 90px 90px', gap: 6, padding: '8px 12px', borderBottom: '1px solid var(--border)', alignItems: 'end' }}>
