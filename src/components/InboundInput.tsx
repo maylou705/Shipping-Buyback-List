@@ -179,7 +179,7 @@ export default function InboundInput({ supabase, date, inbounds, reload }: Props
         </div>
 
         {/* フォーム */}
-        <div style={{ background: 'var(--surface)', border: `1.5px solid ${bd}`, borderRadius: 'var(--radius)', overflow: 'hidden' }}>
+        <div style={{ background: 'var(--surface)', border: `1.5px solid ${bd}`, borderRadius: 'var(--radius)', overflow: 'visible' }}>
           <div style={{ padding: '9px 16px', background: bg, borderBottom: `1px solid ${bd}`, fontSize: 12, fontWeight: 700, color: col }}>
             {INB_SECTION_LABEL[section]} 入力
           </div>
