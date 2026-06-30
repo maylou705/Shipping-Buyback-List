@@ -13,3 +13,10 @@ export function createEcClient() {
     'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhpY2x2dHpvYWtqdnVsbnNlc3FkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMzMTM4ODQsImV4cCI6MjA4ODg4OTg4NH0.pdgyLvMi958xurCdTBqau2iYDEy_CW4X5Lxy4dkAdGA'
   )
 }
+
+export function createQuoteClient() {
+  return createSupabaseClient(
+    'https://yanhbtpjvxglrocwohyv.supabase.co',
+    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlhbmhidHBqdnhnbHJvY3dvaHl2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI3ODg3NTUsImV4cCI6MjA4ODM2NDc1NX0.TeKL9yDdeK-qhvnY0NaLe4OcRj8MuPf5QLf0oyRQa5w'
+  )
+}
