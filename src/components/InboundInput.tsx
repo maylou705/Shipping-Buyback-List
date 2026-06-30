@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react'
 import { Inbound, InbSection, INB_SECTION_LABEL, fmt, fmtDate, weekday, uid } from '@/lib/types'
 import { SupabaseClient } from '@supabase/supabase-js'
-import { createEcClient } from '@/lib/supabase'
+import { createQuoteClient } from '@/lib/supabase'
 
 interface Props {
   supabase: SupabaseClient
@@ -18,24 +18,52 @@ const SEC_BD:    Record<InbSection, string> = { corporate: 'var(--yam-bd)', purc
 interface ItemRow { prod: string; qty: string; price: string }
 
 export default function InboundInput({ supabase, date, inbounds, reload }: Props) {
-  const [products, setProducts] = useState<{code: string; name: string}[]>([])
+  const [products, setProducts] = useState<{code: string; name: string; recore_pd_code?: string | null; grade?: string; unit_type?: string}[]>([])
   const [prodSearch, setProdSearch] = useState('')
-
-  const [inventory, setInventory] = useState<Record<string, number>>({})
+  const [inventoryByPd, setInventoryByPd] = useState<Record<string, number>>({})
 
   useEffect(() => {
-    const ec = createEcClient()
-    ec.from('product_codes').select('code, name').order('code').then(({ data }) => {
-      if (data) setProducts(data)
+    const quote = createQuoteClient()
+    quote.from('product_units').select('id, product_id, unit_type, short_code, grade, recore_pd_code').then(({ data: units }) => {
+      if (units) {
+        const items = units
+          .filter((u: any) => u.short_code)
+          .map((u: any) => ({
+            code: u.short_code,
+            name: u.short_code,
+            recore_pd_code: u.recore_pd_code,
+            grade: u.grade,
+            unit_type: u.unit_type,
+          }))
+        setProducts(items)
+      }
     })
-    supabase.from('inventory').select('product_code, qty').then(({ data }) => {
-      if (data) {
-        const map: Record<string, number> = {}
-        data.forEach(r => { map[r.product_code] = (map[r.product_code] || 0) + r.qty })
-        setInventory(map)
+    supabase.from('inventory').select('product_code, grade, qty').then(({ data: inv }) => {
+      if (inv) {
+        const pdMap: Record<string, number> = {}
+        inv.forEach((r: any) => {
+          const key = `${r.product_code}__${r.grade}`
+          pdMap[key] = (pdMap[key] || 0) + r.qty
+        })
+        setInventoryByPd(pdMap)
       }
     })
   }, [])
+
+  const getInventory = (codeOrName: string): number | undefined => {
+    const unit = products.find(p => p.code === codeOrName) as any
+    if (!unit?.recore_pd_code) return undefined
+    const gradeMap: Record<string, string> = {
+      '無印': 'シュリンク有',
+      'シュリンク無': 'シュリンク無',
+      '★シュリ': '★',
+      'ぺリなし': 'その他',
+    }
+    const recoreGrade = gradeMap[unit.grade] || unit.grade
+    const key = `${unit.recore_pd_code}__${recoreGrade}`
+    const qty = inventoryByPd[key]
+    return qty !== undefined ? qty : undefined
+  }
 
   const filtered = prodSearch.length >= 1
     ? products.filter(p =>
@@ -180,39 +208,38 @@ export default function InboundInput({ supabase, date, inbounds, reload }: Props
               {items.map((item, i) => (
                 <div key={i} style={{ display: 'grid', gridTemplateColumns: '2fr 60px 90px 90px', gap: 6, padding: '8px 12px', borderBottom: '1px solid var(--border)', alignItems: 'end' }}>
                   <div className="fg" style={{ position: 'relative' }}>
-  <label>{i === 0 ? '商品名' : `商品名 ${i + 1}`}</label>
+                    <label>{i === 0 ? '商品名' : `商品名 ${i + 1}`}</label>
                     <input
-  value={item.prod}
-  onChange={e => { setItem(i, 'prod', e.target.value); setProdSearch(e.target.value) }}
-  onFocus={e => setProdSearch(e.target.value)}
-  onBlur={() => setTimeout(() => setProdSearch(''), 200)}
-  placeholder="商品名またはコードで検索..."
-/>
-{filtered.length > 0 && item.prod === prodSearch && (
-  <div style={{ position: 'absolute', top: '100%', left: 0, minWidth: 320, background: 'var(--surface)', border: '1.5px solid var(--inbound)', borderRadius: 'var(--radius-sm)', zIndex: 1000, boxShadow: '0 4px 12px rgba(0,0,0,.1)', maxHeight: 400, overflowY: 'auto' }}>
-    {filtered.map(p => (
-      <div key={p.code}
-        onMouseDown={() => { setItem(i, 'prod', p.name); setProdSearch('') }}
-        style={{ padding: '7px 12px', cursor: 'pointer', fontSize: 12, borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 10 }}
-        onMouseEnter={e => (e.currentTarget.style.background = 'var(--inb-bg)')}
-        onMouseLeave={e => (e.currentTarget.style.background = 'none')}
-      >
-        <span style={{ fontSize: 10, color: 'var(--text3)', minWidth: 60 }}>{p.code}</span>
-        <span style={{ color: 'var(--text)', fontWeight: 600, flex: 1 }}>{p.name}</span>
-        {inventory[p.code] !== undefined && (
-          <span style={{
-            fontSize: 10, padding: '1px 6px', borderRadius: 8, whiteSpace: 'nowrap',
-            background: inventory[p.code] > 0 ? 'var(--ov-bg)' : '#FEF2F2',
-            color: inventory[p.code] > 0 ? 'var(--overseas)' : 'var(--danger)',
-            border: `1px solid ${inventory[p.code] > 0 ? 'var(--ov-bd)' : '#FACACA'}`,
-          }}>
-            在庫 {inventory[p.code]}
-          </span>
-        )}
-      </div>
-    ))}
-  </div>
-)}
+                      value={item.prod}
+                      onChange={e => { setItem(i, 'prod', e.target.value); setProdSearch(e.target.value) }}
+                      onFocus={e => setProdSearch(e.target.value)}
+                      onBlur={() => setTimeout(() => setProdSearch(''), 200)}
+                      placeholder="商品名またはコードで検索..."
+                    />
+                    {filtered.length > 0 && item.prod === prodSearch && (
+                      <div style={{ position: 'absolute', top: '100%', left: 0, minWidth: 480, background: 'var(--surface)', border: '1.5px solid var(--inbound)', borderRadius: 'var(--radius-sm)', zIndex: 1000, boxShadow: '0 4px 12px rgba(0,0,0,.1)', maxHeight: 400, overflowY: 'auto' }}>
+                        {filtered.map(p => (
+                          <div key={p.code}
+                            onMouseDown={() => { setItem(i, 'prod', p.name); setProdSearch('') }}
+                            style={{ padding: '7px 12px', cursor: 'pointer', fontSize: 12, borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 10 }}
+                            onMouseEnter={e => (e.currentTarget.style.background = 'var(--inb-bg)')}
+                            onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+                          >
+                            <span style={{ color: 'var(--text)', fontWeight: 600, flex: 1 }}>{p.name}</span>
+                            {getInventory(p.code) !== undefined && (
+                              <span style={{
+                                fontSize: 10, padding: '1px 6px', borderRadius: 8, whiteSpace: 'nowrap',
+                                background: getInventory(p.code)! > 0 ? 'var(--ov-bg)' : '#FEF2F2',
+                                color: getInventory(p.code)! > 0 ? 'var(--overseas)' : 'var(--danger)',
+                                border: `1px solid ${getInventory(p.code)! > 0 ? 'var(--ov-bd)' : '#FACACA'}`,
+                              }}>
+                                在庫 {getInventory(p.code)}
+                              </span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                   <div className="fg"><label>個数</label><input type="number" value={item.qty} onChange={e => setItem(i, 'qty', e.target.value)} placeholder="0" /></div>
                   <div className="fg"><label>単価 (¥)</label><input type="number" value={item.price} onChange={e => setItem(i, 'price', e.target.value)} placeholder="0" /></div>
