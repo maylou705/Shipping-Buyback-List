@@ -245,66 +245,126 @@ export default function InventoryImport({ supabase, onImported }: Props) {
         {latestDate && <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text3)', alignSelf: 'center' }}>最終更新: {latestDate}</span>}
       </div>
 
-      {/* ━━━ 在庫表 ━━━ */}
+{/* ━━━ 在庫表 ━━━ */}
       {tab === 'table' && (
         <div>
-          <div style={{ marginBottom: 12, display: 'flex', gap: 8, alignItems: 'center' }}>
-            <input value={searchWord} onChange={e => setSearchWord(e.target.value)}
-              placeholder="商品名で検索..." style={{ padding: '7px 12px', border: '1.5px solid var(--border)', borderRadius: 'var(--radius-sm)', fontSize: 12, width: 240, outline: 'none' }} />
-            <span style={{ fontSize: 11, color: 'var(--text2)' }}>{filteredRows.length}商品</span>
+          {/* 検索＋KPI */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14, flexWrap: 'wrap' }}>
+            <input
+              value={searchWord}
+              onChange={e => setSearchWord(e.target.value)}
+              placeholder="商品名で検索..."
+              style={{ padding: '7px 12px', border: '1.5px solid var(--border)', borderRadius: 'var(--radius-sm)', fontSize: 12, width: 220, outline: 'none' }}
+            />
+            <span style={{ fontSize: 11, color: 'var(--text2)', background: 'var(--sf2)', padding: '4px 10px', borderRadius: 8 }}>
+              {filteredRows.length}商品
+            </span>
+            <span style={{ fontSize: 11, color: 'var(--text2)', background: 'var(--sf2)', padding: '4px 10px', borderRadius: 8 }}>
+              総在庫 <strong style={{ color: 'var(--overseas)' }}>{fmt(allRows.reduce((a, r) => a + Object.values(r.gradeQty).reduce((b, q) => b + q, 0), 0))}</strong>個
+            </span>
           </div>
 
-          {/* KPI */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(140px,1fr))', gap: 10, marginBottom: 16 }}>
-            {[
-              { label: '商品種類', val: allRows.length + '種', color: 'var(--overseas)' },
-              { label: '総在庫数', val: fmt(allRows.reduce((a, r) => a + Object.values(r.gradeQty).reduce((b, q) => b + q, 0), 0)) + '個', color: 'var(--overseas)' },
-            ].map(k => (
-              <div key={k.label} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '10px 14px' }}>
-                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text2)', marginBottom: 3 }}>{k.label}</div>
-                <div style={{ fontSize: 16, fontWeight: 800, color: k.color }}>{k.val}</div>
-              </div>
-            ))}
-          </div>
-
-          {loading ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--text3)' }}>読み込み中...</div> : (
+          {loading ? (
+            <div style={{ textAlign: 'center', padding: 40, color: 'var(--text3)' }}>読み込み中...</div>
+          ) : (
             categories.map(cat => {
               const catRows = filteredRows.filter(r => r.category === cat)
+              if (!catRows.length) return null
               return (
-                <div key={cat} className="card" style={{ marginBottom: 14, padding: 0, overflow: 'hidden' }}>
-                  <div className="card-head" style={{ background: 'var(--sf2)' }}>
-                    <span style={{ fontWeight: 800 }}>{cat}</span>
-                    <span style={{ fontSize: 11, color: 'var(--text2)' }}>{catRows.length}商品</span>
+                <div key={cat} style={{ marginBottom: 28 }}>
+                  {/* カテゴリ見出し */}
+                  <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--text)', padding: '6px 12px', background: 'var(--sf2)', borderRadius: 'var(--radius-sm)', marginBottom: 6, borderLeft: '3px solid var(--overseas)' }}>
+                    {cat} <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--text2)', marginLeft: 6 }}>{catRows.length}商品</span>
                   </div>
-                  <div style={{ overflowX: 'auto' }}>
-                    <table>
-                      <thead>
-                        <tr>
-                          <th style={{ minWidth: 180 }}>商品名</th>
-                          {GRADE_COLS.map(c => <th key={c.key} style={{ textAlign: 'right', whiteSpace: 'nowrap', width: 100 }}>{c.label}</th>)}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {catRows.map(r => {
-                          return (
-                            <tr key={r.productId}>
-                              <td style={{ minWidth: 200 }}>
-                                <div style={{ fontWeight: 600, fontSize: 12 }}>{r.name}</div>
-                                <div style={{ fontSize: 10, color: 'var(--text3)' }}>{r.name_en}</div>
+
+                  {/* グリッドテーブル */}
+                  <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius)', overflow: 'hidden' }}>
+                    <div style={{ overflowX: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 600 }}>
+                        <thead>
+                          <tr style={{ position: 'sticky', top: 0, zIndex: 10 }}>
+                            {/* 商品名列 */}
+                            <th style={{
+                              position: 'sticky', top: 0, left: 0, zIndex: 20,
+                              background: '#1e293b', color: '#fff',
+                              padding: '10px 14px', textAlign: 'left',
+                              fontWeight: 700, fontSize: 11, whiteSpace: 'nowrap',
+                              minWidth: 200, borderRight: '2px solid #334155',
+                            }}>
+                              商品名
+                            </th>
+                            {GRADE_COLS.map(c => (
+                              <th key={c.key} style={{
+                                position: 'sticky', top: 0, zIndex: 10,
+                                background: '#1e293b', color: '#fff',
+                                padding: '10px 16px', textAlign: 'right',
+                                fontWeight: 700, fontSize: 11, whiteSpace: 'nowrap',
+                                minWidth: 90, borderRight: '1px solid #334155',
+                              }}>
+                                {c.label}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {catRows.map((r, idx) => (
+                            <tr key={r.productId} style={{ background: idx % 2 === 0 ? '#fff' : '#f8fafc' }}>
+                              {/* 商品名（左固定なし、スクロールで流れる） */}
+                              <td style={{
+                                padding: '9px 14px',
+                                borderRight: '2px solid var(--border)',
+                                borderBottom: '1px solid var(--border)',
+                                background: idx % 2 === 0 ? '#fff' : '#f8fafc',
+                                minWidth: 200,
+                              }}>
+                                <div style={{ fontWeight: 600, fontSize: 12, color: 'var(--text)', whiteSpace: 'nowrap' }}>{r.name}</div>
+                                <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 1 }}>{r.name_en}</div>
                               </td>
                               {GRADE_COLS.map(c => {
                                 const qty = r.gradeQty[c.key]
+                                const hasQty = qty !== undefined && qty > 0
+                                const isZero = qty === 0
                                 return (
-                                  <td key={c.key} style={{ textAlign: 'right', width: 100, fontWeight: qty ? 700 : 400, color: qty ? 'var(--overseas)' : 'var(--text3)', fontSize: 13 }}>
+                                  <td key={c.key} style={{
+                                    padding: '9px 16px',
+                                    textAlign: 'right',
+                                    borderRight: '1px solid var(--border)',
+                                    borderBottom: '1px solid var(--border)',
+                                    background: hasQty
+                                      ? idx % 2 === 0 ? '#f0f9ff' : '#e0f2fe'
+                                      : idx % 2 === 0 ? '#fff' : '#f8fafc',
+                                    fontWeight: hasQty ? 700 : 400,
+                                    color: hasQty ? 'var(--overseas)' : isZero ? '#ef4444' : 'var(--text3)',
+                                    fontSize: hasQty ? 13 : 12,
+                                  }}>
                                     {qty !== undefined ? fmt(qty) : '—'}
                                   </td>
                                 )
                               })}
                             </tr>
-                          )
-                        })}
-                      </tbody>
-                    </table>
+                          ))}
+                          {/* 合計行 */}
+                          <tr style={{ background: '#1e293b' }}>
+                            <td style={{ padding: '8px 14px', borderRight: '2px solid #334155', color: '#94a3b8', fontSize: 11, fontWeight: 700 }}>
+                              合計
+                            </td>
+                            {GRADE_COLS.map(c => {
+                              const total = catRows.reduce((a, r) => a + (r.gradeQty[c.key] || 0), 0)
+                              return (
+                                <td key={c.key} style={{
+                                  padding: '8px 16px', textAlign: 'right',
+                                  borderRight: '1px solid #334155',
+                                  color: total > 0 ? '#7dd3fc' : '#475569',
+                                  fontWeight: 700, fontSize: 12,
+                                }}>
+                                  {total > 0 ? fmt(total) : '—'}
+                                </td>
+                              )
+                            })}
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 </div>
               )
@@ -312,155 +372,3 @@ export default function InventoryImport({ supabase, onImported }: Props) {
           )}
         </div>
       )}
-
-      {/* ━━━ 推移 ━━━ */}
-      {tab === 'trend' && (
-        <div>
-          <div style={{ marginBottom: 12 }}>
-            <select value={selectedPd} onChange={e => setSelectedPd(e.target.value)}
-              style={{ padding: '7px 12px', border: '1.5px solid var(--border)', borderRadius: 'var(--radius-sm)', fontSize: 12, minWidth: 280 }}>
-              <option value="">商品を選択...</option>
-              {allRows.map(r => <option key={r.productId} value={String(r.productId)}>{r.name}</option>)}
-            </select>
-          </div>
-
-          {selectedPd && (() => {
-            const row = allRows.find(r => String(r.productId) === selectedPd)
-            if (!row) return null
-            // このproductに紐づくrecore_pd_codesを取得
-            const units = linkedUnits.filter(u => u.product_id === row.productId)
-            return (
-              <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-                <div className="card-head">
-                  <span style={{ fontWeight: 700 }}>{row.name}</span>
-                  <span style={{ fontSize: 11, color: 'var(--text2)' }}>過去{trendDates.length}日間</span>
-                </div>
-                <div style={{ overflowX: 'auto', padding: '14px 16px' }}>
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>グレード</th>
-                        {trendDates.map(d => <th key={d} style={{ textAlign: 'right', whiteSpace: 'nowrap', fontSize: 10 }}>{d.slice(5)}</th>)}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {units.map(u => {
-                        const recoreGrade = Object.entries(GRADE_MAP).find(([, v]) => v === u.grade)?.[0]
-                        if (!recoreGrade || !u.recore_pd_code) return null
-                        const key = `${u.recore_pd_code}__${recoreGrade}`
-                        const vals = trendDates.map(d => trendData[key]?.[d])
-                        if (vals.every(v => v === undefined)) return null
-                        return (
-                          <tr key={u.id}>
-                            <td>
-                              <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 8, background: 'var(--ov-bg)', color: 'var(--overseas)', fontWeight: 600 }}>
-                                {u.short_code || u.grade}
-                              </span>
-                            </td>
-                            {vals.map((v, i) => {
-                              const prev = vals[i - 1]
-                              const diff = v !== undefined && prev !== undefined ? v - prev : null
-                              return (
-                                <td key={i} style={{ textAlign: 'right', fontWeight: 600, color: v === 0 ? 'var(--danger)' : 'var(--text)', fontSize: 12 }}>
-                                  {v !== undefined ? fmt(v) : '—'}
-                                  {diff !== null && diff !== 0 && (
-                                    <div style={{ fontSize: 9, color: diff > 0 ? 'var(--success)' : 'var(--danger)' }}>
-                                      {diff > 0 ? '+' : ''}{fmt(diff)}
-                                    </div>
-                                  )}
-                                </td>
-                              )
-                            })}
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )
-          })()}
-
-          {!selectedPd && <div style={{ textAlign: 'center', padding: 40, color: 'var(--text3)', fontSize: 12 }}>上のセレクトから商品を選んでください</div>}
-        </div>
-      )}
-
-      {/* ━━━ CSVインポート ━━━ */}
-      {tab === 'import' && (
-        <div>
-          <div
-            onDragOver={e => { e.preventDefault(); setDragging(true) }}
-            onDragLeave={() => setDragging(false)}
-            onDrop={e => { e.preventDefault(); setDragging(false); const f = e.dataTransfer.files[0]; if (f) processFile(f) }}
-            style={{ border: `2px dashed ${dragging ? 'var(--overseas)' : 'var(--border2)'}`, borderRadius: 'var(--radius)', padding: '40px 20px', textAlign: 'center', background: dragging ? 'var(--ov-bg)' : 'var(--surface)', cursor: 'pointer', marginBottom: 16, transition: '.15s' }}
-            onClick={() => document.getElementById('csvInput')?.click()}
-          >
-            <div style={{ fontSize: 32, marginBottom: 8 }}>📂</div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>CSVファイルをドラッグ&ドロップ</div>
-            <div style={{ fontSize: 11, color: 'var(--text2)', marginTop: 4 }}>またはクリックしてファイルを選択</div>
-            <input id="csvInput" type="file" accept=".csv" style={{ display: 'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) processFile(f) }} />
-          </div>
-
-          {message && (
-            <div style={{ padding: '10px 16px', borderRadius: 'var(--radius-sm)', marginBottom: 16, background: status === 'error' ? '#FEF2F2' : status === 'done' ? '#EDF8F3' : 'var(--ov-bg)', color: status === 'error' ? 'var(--danger)' : status === 'done' ? 'var(--success)' : 'var(--overseas)', border: `1px solid ${status === 'error' ? '#FACACA' : status === 'done' ? '#AADDC2' : 'var(--ov-bd)'}`, fontSize: 12, fontWeight: 700 }}>
-              {status === 'loading' && '⏳ '}{message}
-            </div>
-          )}
-
-          {unlinked.length > 0 && (
-            <div className="card" style={{ marginBottom: 16, borderColor: 'var(--dhl-bd)' }}>
-              <div className="card-head" style={{ background: 'var(--dhl-bg)', color: 'var(--dhl)' }}>⚠ 未紐付け商品（{unlinked.length}件）</div>
-              {unlinked.map(({ pdCode, name }) => (
-                <div key={pdCode} style={{ padding: '10px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                  <div style={{ flex: 1, minWidth: 200 }}>
-                    <div style={{ fontSize: 12, fontWeight: 700 }}>{name}</div>
-                    <div style={{ fontSize: 10, color: 'var(--text3)' }}>{pdCode}</div>
-                  </div>
-                  <select defaultValue="" onChange={async e => {
-                    if (!e.target.value) return
-                    const unit = linkedUnits[parseInt(e.target.value)]
-                    if (unit) await createQuoteClient().from('product_units').update({ recore_pd_code: pdCode }).eq('id', unit.id)
-                    setUnlinked(prev => prev.filter(u => u.pdCode !== pdCode))
-                  }} style={{ fontSize: 12, padding: '6px 10px', border: '1.5px solid var(--border)', borderRadius: 'var(--radius-sm)', minWidth: 280 }}>
-                    <option value="">マスター商品を選択...</option>
-                    {productUnits.filter(u => u.short_code).map((u, idx) => (
-                      <option key={idx} value={String(idx)}>{u.short_code} ({u.unit_type} / {u.grade})</option>
-                    ))}
-                  </select>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {preview.length > 0 && (
-            <button onClick={doImport} style={{ padding: '10px 28px', background: 'var(--overseas)', color: '#fff', border: 'none', borderRadius: 'var(--radius-sm)', fontSize: 13, fontWeight: 800, cursor: 'pointer', marginBottom: 20 }}>
-              インポート実行 ({preview.length}件)
-            </button>
-          )}
-
-          {preview.length > 0 && (
-            <div className="card">
-              <div className="card-head">プレビュー（最初の10件）</div>
-              <div style={{ overflowX: 'auto' }}>
-                <table>
-                  <thead><tr><th>商品コード</th><th>商品名</th><th>グレード</th><th style={{ textAlign: 'right' }}>在庫数</th><th style={{ textAlign: 'right' }}>原価</th></tr></thead>
-                  <tbody>
-                    {preview.slice(0, 10).map(r => (
-                      <tr key={r.id}>
-                        <td style={{ fontSize: 10, color: 'var(--text2)' }}>{r.product_code}</td>
-                        <td style={{ fontWeight: 600 }}>{r.product_name}</td>
-                        <td>{r.grade}</td>
-                        <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--overseas)' }}>{r.qty}</td>
-                        <td style={{ textAlign: 'right' }}>¥{fmt(r.cost)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
