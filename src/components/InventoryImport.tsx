@@ -249,7 +249,7 @@ export default function InventoryImport({ supabase, onImported }: Props) {
                   {cat} <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--text2)', marginLeft: 6 }}>{catRows.length}商品</span>
                 </div>
                 <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius)', overflow: 'hidden' }}>
-                  <div style={{ overflowX: 'auto' }}>
+                  <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: '60vh' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                       <thead>
                         <tr>
