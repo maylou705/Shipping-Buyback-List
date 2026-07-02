@@ -423,7 +423,7 @@ export default function ShipmentInput({ supabase, date, setDate, shipments, relo
                 <span style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
                   <button onClick={() => updatePack(pi, { items: [mkItem()], track: '', recv: '', rem: '' })} className="btn btn-outline btn-sm">クリア</button>
                   <button onClick={() => completePack(pi)} style={{ padding: '8px 22px', background: col, color: '#fff', border: 'none', borderRadius: 'var(--radius-sm)', fontSize: 13, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                    完了 ✓
+                    保存
                   </button>
                 </span>
               </div>
