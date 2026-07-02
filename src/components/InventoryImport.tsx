@@ -160,7 +160,13 @@ export default function InventoryImport({ supabase, onImported }: Props) {
     }
   })
 
-  const allRows = [...productMap.values()].filter(r => Object.values(r.gradeQty).some(q => q > 0))
+  const allRows = [...productMap.values()]
+    .filter(r => Object.values(r.gradeQty).some(q => q > 0))
+    .sort((a, b) => {
+      const da = products.find(p => p.id === a.productId)?.release_date || ''
+      const db = products.find(p => p.id === b.productId)?.release_date || ''
+      return db.localeCompare(da)
+    })
   const filteredRows = allRows.filter(r =>
     !searchWord ||
     r.name.toLowerCase().includes(searchWord.toLowerCase()) ||
