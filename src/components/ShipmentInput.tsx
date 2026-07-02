@@ -79,6 +79,7 @@ export default function ShipmentInput({ supabase, date, shipments, reload, inbou
     const gradeMap: Record<string, string> = {
       '無印': 'シュリンク有',
       'シュリンク無': 'シュリンク無',
+      '★シュリ': '★',
       'ぺリなし': 'その他',
     }
     const recoreGrade = gradeMap[unit.grade] || unit.grade
