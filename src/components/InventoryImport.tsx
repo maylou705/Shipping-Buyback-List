@@ -34,6 +34,7 @@ interface Product {
   name: string
   name_en: string
   category: string
+  release_date?: string
 }
 
 const GRADE_MAP: Record<string, string> = {
@@ -97,7 +98,7 @@ export default function InventoryImport({ supabase, onImported }: Props) {
     const quote = createQuoteClient()
     quote.from('product_units').select('id, short_code, recore_pd_code, grade, unit_type, product_id')
       .then(({ data }) => { if (data) setProductUnits(data as ProductUnit[]) })
-    quote.from('products').select('id, name, name_en, category')
+    quote.from('products').select('id, name, name_en, category, release_date')
       .then(({ data }) => { if (data) setProducts(data as Product[]) })
   }, [])
 
