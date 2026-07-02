@@ -1,5 +1,5 @@
 'use client'
-import { Shipment, Inbound, CARRIERS, CARRIER_COLOR, CARRIER_BG, fmt, fmtDate, weekday } from '@/lib/types'
+import { Shipment, Inbound, CARRIERS, CARRIER_COLOR, CARRIER_BG, fmt, fmtDate, weekday, todayStr } from '@/lib/types'
 import { SupabaseClient } from '@supabase/supabase-js'
 import PackGroupTable, { buildPackGroups } from './PackGroupTable'
 import { useState } from 'react'
@@ -12,8 +12,9 @@ interface Props {
   reload: () => void
 }
 
-export default function Dashboard({ supabase, date, shipments, inbounds, reload }: Props) {
+export default function Dashboard({ supabase, shipments, inbounds, reload }: Props) {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
+  const date = todayStr()
   const ds = shipments.filter(s => s.date === date)
   const di = inbounds.filter(b => b.date === date)
   const tOut = ds.reduce((a, s) => a + (s.amount || 0), 0)
