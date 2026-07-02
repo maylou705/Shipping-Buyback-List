@@ -1,5 +1,5 @@
 'use client'
-import React from 'react'
+import React, { useState } from 'react'
 import { Shipment, CARRIERS, CARRIER_COLOR, CARRIER_BG, fmt } from '@/lib/types'
 import { SupabaseClient } from '@supabase/supabase-js'
 
@@ -37,6 +37,16 @@ const editInputStyle: React.CSSProperties = {
 }
 
 export default function PackGroupTable({ packs, color, showChk, showDelete, editable, supabase, onUpdate }: Props) {
+  const [editingKeys, setEditingKeys] = useState<Set<string>>(new Set())
+
+  const toggleEdit = (key: string) => {
+    setEditingKeys(prev => {
+      const next = new Set(prev)
+      next.has(key) ? next.delete(key) : next.add(key)
+      return next
+    })
+  }
+
   const setChkAll = async (carrier: string, packNo: number, field: 'chk_liqoa' | 'chk_pack', val: boolean) => {
     if (!supabase) return
     await supabase.from('shipments').update({ [field]: val })
@@ -81,6 +91,8 @@ export default function PackGroupTable({ packs, color, showChk, showDelete, edit
         const first   = pack.rows[0]
         const allL    = pack.rows.every(r => r.chk_liqoa)
         const allP    = pack.rows.every(r => r.chk_pack)
+        const packKey = `${pack.carrier}-${pack.packNo}`
+        const isEditing = editable && editingKeys.has(packKey)
 
         return (
           <div key={`${pack.carrier}-${pack.packNo}`} style={{ borderBottom: '2px solid var(--border)' }}>
@@ -121,8 +133,15 @@ export default function PackGroupTable({ packs, color, showChk, showDelete, edit
                 </span>
               )}
 
+              {editable && (
+                <button onClick={() => toggleEdit(packKey)} className="btn btn-xs btn-outline"
+                  style={{ marginLeft: showChk ? 0 : 'auto', color: isEditing ? 'var(--overseas)' : undefined, borderColor: isEditing ? 'var(--ov-bd)' : undefined }}>
+                  {isEditing ? '編集終了' : '✎ 編集'}
+                </button>
+              )}
+
               {showDelete && (
-                <button onClick={() => delPack(pack.carrier, pack.packNo)} className="btn btn-xs btn-outline" style={{ marginLeft: showChk ? 0 : 'auto' }}>
+                <button onClick={() => delPack(pack.carrier, pack.packNo)} className="btn btn-xs btn-outline" style={{ marginLeft: (showChk || editable) ? 0 : 'auto' }}>
                   梱包削除
                 </button>
               )}
@@ -137,11 +156,11 @@ export default function PackGroupTable({ packs, color, showChk, showDelete, edit
                   <th style={{ textAlign: 'right' }}>単価</th>
                   <th style={{ textAlign: 'right' }}>金額</th>
                   <th style={{ textAlign: 'right' }}>重量</th>
-                  {editable && <th style={{ width: 1 }}></th>}
+                  {isEditing && <th style={{ width: 1 }}></th>}
                 </tr>
               </thead>
               <tbody>
-                {pack.rows.map(r => editable ? (
+                {pack.rows.map(r => isEditing ? (
                   <tr key={r.id}>
                     <td style={{ minWidth: 140 }}>
                       <input
