@@ -60,8 +60,8 @@ export default function AppShell() {
         <Sidebar date={date} setDate={setDate} shipments={shipments} inbounds={inbounds} />
         <main style={{ overflowY:'auto', padding: view === 'shipment' || view === 'inbound' ? '0' : '20px 24px' }}>
           {view === 'dashboard' && <Dashboard {...props} />}
-          {view === 'shipment'  && <ShipmentInput {...props} />}
-          {view === 'inbound'   && <InboundInput {...props} />}
+          {view === 'shipment'  && <ShipmentInput {...props} setDate={setDate} />}
+          {view === 'inbound'   && <InboundInput {...props} setDate={setDate} />}
           {view === 'list'      && <ListView {...props} />}
           {view === 'analytics' && <Analytics {...props} />}
 {view === 'inventory' && <InventoryImport supabase={props.supabase} onImported={load} />}
