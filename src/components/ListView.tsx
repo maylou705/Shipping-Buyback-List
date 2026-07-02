@@ -93,6 +93,7 @@ export default function ListView({ supabase, shipments, inbounds, reload }: Prop
                       <th style={{ textAlign: 'right' }}>個数</th>
                       <th style={{ textAlign: 'right' }}>単価</th>
                       <th style={{ textAlign: 'right' }}>金額</th>
+                      {editingInbDates.has(d) && <th>日付</th>}
                       {editingInbDates.has(d) && <th style={{ width: 1 }}></th>}
                     </tr></thead>
                     <tbody>
@@ -135,6 +136,13 @@ export default function ListView({ supabase, shipments, inbounds, reload }: Prop
                             />
                           </td>
                           <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--inbound)' }}>¥{fmt(x.amount)}</td>
+                          <td style={{ minWidth: 140 }}>
+                            <input
+                              type="date" defaultValue={x.date}
+                              onChange={e => e.target.value && updateInbound(x.id, { date: e.target.value })}
+                              style={editInputStyle}
+                            />
+                          </td>
                           <td>
                             <button onClick={() => delInbound(x.id)} className="btn btn-xs btn-outline" title="この行を削除">✕</button>
                           </td>
