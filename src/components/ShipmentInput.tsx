@@ -71,9 +71,6 @@ export default function ShipmentInput({ supabase, date, shipments, reload, inbou
         }
       })
     })
-        setInventoryByPd(pdMap)
-      }
-    })
   }, [])
 
   const getInventory = (codeOrName: string): number | undefined => {
