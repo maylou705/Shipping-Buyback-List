@@ -47,24 +47,24 @@ export default function PackGroupTable({ packs, color, showChk, showDelete, edit
     })
   }
 
-  const setChkAll = async (carrier: string, packNo: number, field: 'chk_liqoa' | 'chk_pack', val: boolean) => {
+  const setChkAll = async (carrier: string, packNo: number, packDate: string, field: 'chk_liqoa' | 'chk_pack', val: boolean) => {
     if (!supabase) return
     await supabase.from('shipments').update({ [field]: val })
-      .eq('carrier', carrier).eq('pack_no', packNo)
+      .eq('carrier', carrier).eq('pack_no', packNo).eq('date', packDate)
     onUpdate?.()
   }
 
-  const setInvoice = async (carrier: string, packNo: number, val: string) => {
+  const setInvoice = async (carrier: string, packNo: number, packDate: string, val: string) => {
     if (!supabase) return
     await supabase.from('shipments').update({ invoice_no: val })
-      .eq('carrier', carrier).eq('pack_no', packNo)
+      .eq('carrier', carrier).eq('pack_no', packNo).eq('date', packDate)
     onUpdate?.()
   }
 
-  const delPack = async (carrier: string, packNo: number) => {
+  const delPack = async (carrier: string, packNo: number, packDate: string) => {
     if (!supabase) return
     if (!confirm(`梱包${packNo}を削除しますか？`)) return
-    await supabase.from('shipments').delete().eq('carrier', carrier).eq('pack_no', packNo)
+    await supabase.from('shipments').delete().eq('carrier', carrier).eq('pack_no', packNo).eq('date', packDate)
     onUpdate?.()
   }
 
@@ -74,9 +74,9 @@ export default function PackGroupTable({ packs, color, showChk, showDelete, edit
     onUpdate?.()
   }
 
-  const updatePackDate = async (carrier: string, packNo: number, newDate: string) => {
+  const updatePackDate = async (carrier: string, packNo: number, oldDate: string, newDate: string) => {
     if (!supabase || !newDate) return
-    await supabase.from('shipments').update({ date: newDate }).eq('carrier', carrier).eq('pack_no', packNo)
+    await supabase.from('shipments').update({ date: newDate }).eq('carrier', carrier).eq('pack_no', packNo).eq('date', oldDate)
     onUpdate?.()
   }
 
@@ -120,7 +120,7 @@ export default function PackGroupTable({ packs, color, showChk, showDelete, edit
                     <span style={{ fontSize: 10, color: 'var(--text2)', whiteSpace: 'nowrap' }}>日付</span>
                     <input
                       type="date" defaultValue={first.date}
-                      onChange={e => updatePackDate(pack.carrier, pack.packNo, e.target.value)}
+                      onChange={e => updatePackDate(pack.carrier, pack.packNo, first.date, e.target.value)}
                       style={{ fontSize: 11, padding: '2px 6px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 4, outline: 'none', color: 'var(--text)' }}
                     />
                   </span>
@@ -134,7 +134,7 @@ export default function PackGroupTable({ packs, color, showChk, showDelete, edit
                 )}
 
                 {showDelete && (
-                  <button onClick={() => delPack(pack.carrier, pack.packNo)} className="btn btn-xs btn-outline" style={{ marginLeft: editable ? 0 : 'auto' }}>
+                  <button onClick={() => delPack(pack.carrier, pack.packNo, first.date)} className="btn btn-xs btn-outline" style={{ marginLeft: editable ? 0 : 'auto' }}>
                     梱包削除
                   </button>
                 )}
@@ -142,21 +142,13 @@ export default function PackGroupTable({ packs, color, showChk, showDelete, edit
 
               {showChk && (
                 <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px dashed var(--border)', display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
-                  <span style={{
-                    fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 8, whiteSpace: 'nowrap',
-                    ...(allL && allP
-                      ? { background: '#EDF8F3', color: '#16a34a', border: '1px solid #AADDC2' }
-                      : { background: '#FEF9EC', color: 'var(--warn)', border: '1px solid #EEE098' }),
-                  }}>
-                    {allL && allP ? '✓ 完了' : '未完了'}
-                  </span>
                   <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, cursor: 'pointer', color: 'var(--text2)' }}>
-                    <input type="checkbox" checked={allL} onChange={e => setChkAll(pack.carrier, pack.packNo, 'chk_liqoa', e.target.checked)}
+                    <input type="checkbox" checked={allL} onChange={e => setChkAll(pack.carrier, pack.packNo, first.date, 'chk_liqoa', e.target.checked)}
                       style={{ width: 14, height: 14, accentColor: 'var(--overseas)' }} />
                     リコア
                   </label>
                   <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, cursor: 'pointer', color: 'var(--text2)' }}>
-                    <input type="checkbox" checked={allP} onChange={e => setChkAll(pack.carrier, pack.packNo, 'chk_pack', e.target.checked)}
+                    <input type="checkbox" checked={allP} onChange={e => setChkAll(pack.carrier, pack.packNo, first.date, 'chk_pack', e.target.checked)}
                       style={{ width: 14, height: 14, accentColor: 'var(--overseas)' }} />
                     梱包
                   </label>
@@ -164,7 +156,7 @@ export default function PackGroupTable({ packs, color, showChk, showDelete, edit
                     <span style={{ fontSize: 10, color: 'var(--text2)', whiteSpace: 'nowrap' }}>請求書No</span>
                     <input
                       defaultValue={first.invoice_no || ''}
-                      onBlur={e => setInvoice(pack.carrier, pack.packNo, e.target.value)}
+                      onBlur={e => setInvoice(pack.carrier, pack.packNo, first.date, e.target.value)}
                       placeholder="未入力"
                       style={{ width: 90, fontSize: 11, padding: '3px 6px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 4, outline: 'none', color: 'var(--text)' }}
                     />
