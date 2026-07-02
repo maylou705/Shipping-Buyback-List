@@ -1,4 +1,5 @@
 'use client'
+import React from 'react'
 import { Shipment, CARRIERS, CARRIER_COLOR, CARRIER_BG, fmt } from '@/lib/types'
 import { SupabaseClient } from '@supabase/supabase-js'
 
@@ -25,11 +26,17 @@ interface Props {
   color: string
   showChk?: boolean
   showDelete?: boolean
+  editable?: boolean
   supabase?: SupabaseClient
   onUpdate?: () => void
 }
 
-export default function PackGroupTable({ packs, color, showChk, showDelete, supabase, onUpdate }: Props) {
+const editInputStyle: React.CSSProperties = {
+  width: '100%', fontSize: 12, padding: '3px 6px', background: 'var(--surface)',
+  border: '1px solid var(--border)', borderRadius: 4, outline: 'none', color: 'var(--text)',
+}
+
+export default function PackGroupTable({ packs, color, showChk, showDelete, editable, supabase, onUpdate }: Props) {
   const setChkAll = async (carrier: string, packNo: number, field: 'chk_liqoa' | 'chk_pack', val: boolean) => {
     if (!supabase) return
     await supabase.from('shipments').update({ [field]: val })
@@ -48,6 +55,19 @@ export default function PackGroupTable({ packs, color, showChk, showDelete, supa
     if (!supabase) return
     if (!confirm(`梱包${packNo}を削除しますか？`)) return
     await supabase.from('shipments').delete().eq('carrier', carrier).eq('pack_no', packNo)
+    onUpdate?.()
+  }
+
+  const updateRow = async (id: string, patch: Record<string, any>) => {
+    if (!supabase) return
+    await supabase.from('shipments').update(patch).eq('id', id)
+    onUpdate?.()
+  }
+
+  const delRow = async (id: string) => {
+    if (!supabase) return
+    if (!confirm('この商品行を削除しますか？')) return
+    await supabase.from('shipments').delete().eq('id', id)
     onUpdate?.()
   }
 
@@ -117,10 +137,58 @@ export default function PackGroupTable({ packs, color, showChk, showDelete, supa
                   <th style={{ textAlign: 'right' }}>単価</th>
                   <th style={{ textAlign: 'right' }}>金額</th>
                   <th style={{ textAlign: 'right' }}>重量</th>
+                  {editable && <th style={{ width: 1 }}></th>}
                 </tr>
               </thead>
               <tbody>
-                {pack.rows.map(r => (
+                {pack.rows.map(r => editable ? (
+                  <tr key={r.id}>
+                    <td style={{ minWidth: 140 }}>
+                      <input
+                        defaultValue={r.product_name}
+                        onBlur={e => e.target.value !== r.product_name && updateRow(r.id, { product_name: e.target.value })}
+                        style={editInputStyle}
+                      />
+                    </td>
+                    <td style={{ textAlign: 'right', width: 70 }}>
+                      <input
+                        type="number" defaultValue={r.qty}
+                        onBlur={e => {
+                          const qty = +e.target.value || 0
+                          if (qty === r.qty) return
+                          updateRow(r.id, { qty, amount: qty * (r.unit_price || 0), total_weight: qty * (r.weight || 0) })
+                        }}
+                        style={{ ...editInputStyle, textAlign: 'right' }}
+                      />
+                    </td>
+                    <td style={{ textAlign: 'right', width: 90 }}>
+                      <input
+                        type="number" defaultValue={r.unit_price}
+                        onBlur={e => {
+                          const unit_price = +e.target.value || 0
+                          if (unit_price === r.unit_price) return
+                          updateRow(r.id, { unit_price, amount: (r.qty || 0) * unit_price })
+                        }}
+                        style={{ ...editInputStyle, textAlign: 'right' }}
+                      />
+                    </td>
+                    <td style={{ textAlign: 'right', fontWeight: 700, color }}>{`¥${fmt(r.amount)}`}</td>
+                    <td style={{ textAlign: 'right', width: 80 }}>
+                      <input
+                        type="number" step="0.01" defaultValue={r.weight}
+                        onBlur={e => {
+                          const weight = +e.target.value || 0
+                          if (weight === r.weight) return
+                          updateRow(r.id, { weight, total_weight: (r.qty || 0) * weight })
+                        }}
+                        style={{ ...editInputStyle, textAlign: 'right' }}
+                      />
+                    </td>
+                    <td>
+                      <button onClick={() => delRow(r.id)} className="btn btn-xs btn-outline" title="この行を削除">✕</button>
+                    </td>
+                  </tr>
+                ) : (
                   <tr key={r.id}>
                     <td style={{ fontWeight: 600 }}>{r.product_name || '-'}</td>
                     <td style={{ textAlign: 'right' }}>{r.qty}</td>
