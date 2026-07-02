@@ -16,9 +16,25 @@ const editInputStyle: React.CSSProperties = {
   border: '1px solid var(--border)', borderRadius: 4, outline: 'none', color: 'var(--text)',
 }
 
+function monthLabel(ym: string) {
+  const [y, m] = ym.split('-')
+  return `${y}年${parseInt(m, 10)}月`
+}
+
 export default function ListView({ supabase, shipments, inbounds, reload }: Props) {
   const dates = [...new Set([...shipments.map(s => s.date), ...inbounds.map(b => b.date)])].sort().reverse()
+  const months = [...new Set(dates.map(d => d.slice(0, 7)))]
+  const [selMonth, setSelMonth] = useState(months[0] || '')
+  const [selDay, setSelDay] = useState<string | null>(null)
   const [editingInbDates, setEditingInbDates] = useState<Set<string>>(new Set())
+
+  const monthDays = dates.filter(d => d.startsWith(selMonth))
+  const visibleDates = selDay ? [selDay] : monthDays
+
+  const chooseMonth = (m: string) => {
+    setSelMonth(m)
+    setSelDay(null)
+  }
 
   const toggleInbEdit = (d: string) => {
     setEditingInbDates(prev => {
@@ -42,7 +58,49 @@ export default function ListView({ supabase, shipments, inbounds, reload }: Prop
   return (
     <div>
       <div style={{ fontSize: 19, fontWeight: 800, marginBottom: 16 }}>一覧</div>
-      {dates.map(d => {
+
+      {/* 月選択 */}
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
+        {months.map(m => (
+          <button key={m} onClick={() => chooseMonth(m)} style={{
+            padding: '6px 14px', borderRadius: 'var(--radius-sm)',
+            border: `1.5px solid ${m === selMonth ? 'var(--overseas)' : 'var(--border)'}`,
+            background: m === selMonth ? 'var(--ov-bg)' : 'var(--surface)',
+            color: m === selMonth ? 'var(--overseas)' : 'var(--text2)',
+            fontSize: 12, fontWeight: 700, cursor: 'pointer',
+          }}>
+            {monthLabel(m)}
+          </button>
+        ))}
+      </div>
+
+      {/* 日選択 */}
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 18 }}>
+        <button onClick={() => setSelDay(null)} style={{
+          padding: '5px 12px', borderRadius: 'var(--radius-sm)',
+          border: `1.5px solid ${!selDay ? 'var(--overseas)' : 'var(--border)'}`,
+          background: !selDay ? 'var(--ov-bg)' : 'var(--surface)',
+          color: !selDay ? 'var(--overseas)' : 'var(--text2)',
+          fontSize: 11, fontWeight: 700, cursor: 'pointer',
+        }}>
+          全て（{monthDays.length}日）
+        </button>
+        {monthDays.map(d => (
+          <button key={d} onClick={() => setSelDay(d)} style={{
+            padding: '5px 12px', borderRadius: 'var(--radius-sm)',
+            border: `1.5px solid ${selDay === d ? 'var(--overseas)' : 'var(--border)'}`,
+            background: selDay === d ? 'var(--ov-bg)' : 'var(--surface)',
+            color: selDay === d ? 'var(--overseas)' : 'var(--text2)',
+            fontSize: 11, fontWeight: 700, cursor: 'pointer',
+          }}>
+            {weekday(d) === '' ? d : `${d.slice(8)}日（${weekday(d)}）`}
+          </button>
+        ))}
+      </div>
+
+      {!visibleDates.length && <div className="empty">この期間のデータはありません</div>}
+
+      {visibleDates.map(d => {
         const ds = shipments.filter(s => s.date === d)
         const di = inbounds.filter(b => b.date === d)
         if (!ds.length && !di.length) return null
