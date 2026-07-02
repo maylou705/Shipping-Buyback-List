@@ -44,7 +44,7 @@ export default function ShipmentInput({ supabase, date, shipments, reload, inbou
     quote.from('product_units').select('id, product_id, unit_type, short_code, grade, recore_pd_code').then(({ data: units }) => {
       if (units) {
         const items = units
-          .filter((u: any) => u.short_code && u.grade !== '★シュリ')
+          .filter((u: any) => u.short_code)
           .map((u: any) => ({
             code: u.short_code,
             name: u.short_code,
