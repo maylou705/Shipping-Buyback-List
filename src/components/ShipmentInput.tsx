@@ -109,6 +109,17 @@ export default function ShipmentInput({ supabase, date, shipments, reload, inbou
   })
 
   const getInbound = (codeOrName: string): number | undefined => {
+
+    const getShipped = (codeOrName: string): number | undefined => {
+    const lower = codeOrName.toLowerCase()
+    let total = 0
+    let found = false
+    Object.entries(savedQtyMap).forEach(([k, v]) => {
+      if (k.includes(lower) || lower.includes(k)) { total += v; found = true }
+    })
+    return found ? total : undefined
+  }
+    
     const lower = codeOrName.toLowerCase()
     let total = 0
     let found = false
@@ -309,7 +320,15 @@ export default function ShipmentInput({ supabase, date, shipments, reload, inbou
             <div key={pack.packNo} style={{ background: 'var(--surface)', border: `2px solid ${col}`, borderRadius: 'var(--radius)', marginBottom: 12, overflow: 'visible', boxShadow: '0 2px 10px rgba(0,0,0,.06)' }}>
               <div style={{ background: 'var(--sf2)', borderBottom: '1px solid var(--border)', padding: '8px 14px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
                 <span style={{ fontSize: 13, fontWeight: 800, color: col }}>梱包 {pack.packNo}</span>
-                {(amt > 0 || w > 0) && <span style={{ fontSize: 11, color: 'var(--text2)' }}>商品計 <strong style={{ color: col }}>¥{fmt(amt)}</strong> / {w.toFixed(2)}kg</span>}
+                {(amt > 0 || w > 0) && (() => {
+                  const totalQty = pack.items.reduce((a, r) => a + (+r.qty || 0), 0)
+                  return (
+                    <span style={{ fontSize: 11, color: 'var(--text2)' }}>
+                      {totalQty > 0 && <strong style={{ color: col, marginRight: 6 }}>{fmt(totalQty)}点</strong>}
+                      商品計 <strong style={{ color: col }}>¥{fmt(amt)}</strong> / {w.toFixed(2)}kg
+                    </span>
+                  )
+                })()}
                 {packs.length > 1 && (
                   <button onClick={() => setPacks(p => p.filter((_, j) => j !== pi))} style={{ marginLeft: 'auto', fontSize: 10, padding: '2px 8px', border: '1px solid var(--border)', borderRadius: 4, background: 'none', cursor: 'pointer', color: 'var(--text3)' }}>削除</button>
                 )}
@@ -380,6 +399,17 @@ export default function ShipmentInput({ supabase, date, shipments, reload, inbou
                               }}>
                                 入荷 {getInbound(p.name)}
                               </span>
+                            )}
+                            {/* 当日出荷済み */}
+                            {getShipped(p.name) !== undefined && (
+                              <span style={{
+                                fontSize: 10, padding: '1px 6px', borderRadius: 8, whiteSpace: 'nowrap',
+                                background: 'var(--yam-bg)', color: 'var(--yamato)',
+                                border: '1px solid var(--yam-bd)',
+                              }}>
+                                出荷済 {getShipped(p.name)}
+                              </span>
+                            )}
                             )}
                           </div>
                         ))}
