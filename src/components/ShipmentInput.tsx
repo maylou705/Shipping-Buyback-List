@@ -41,11 +41,10 @@ export default function ShipmentInput({ supabase, date, shipments, reload, inbou
 
   useEffect(() => {
     const quote = createQuoteClient()
-    // product_unitsからshort_code・grade・recore_pd_codeを取得
     quote.from('product_units').select('id, product_id, unit_type, short_code, grade, recore_pd_code').then(({ data: units }) => {
       if (units) {
         const items = units
-          .filter((u: any) => u.short_code) // short_codeが設定されているもののみ
+          .filter((u: any) => u.short_code)
           .map((u: any) => ({
             code: u.short_code,
             name: u.short_code,
@@ -72,7 +71,6 @@ export default function ShipmentInput({ supabase, date, shipments, reload, inbou
   const getInventory = (codeOrName: string): number | undefined => {
     const unit = products.find(p => p.code === codeOrName) as any
     if (!unit?.recore_pd_code) return undefined
-    // リコアのグレード名に変換
     const gradeMap: Record<string, string> = {
       '無印': 'シュリンク有',
       'シュリンク無': 'シュリンク無',
@@ -84,6 +82,7 @@ export default function ShipmentInput({ supabase, date, shipments, reload, inbou
     const qty = inventoryByPd[key]
     return qty !== undefined ? qty : undefined
   }
+
   const filtered = prodSearch.length >= 1
     ? products.filter(p =>
         p.code.toLowerCase().includes(prodSearch.toLowerCase()) ||
@@ -101,62 +100,6 @@ export default function ShipmentInput({ supabase, date, shipments, reload, inbou
   const lastOpRef = useRef('')
   const lastFrRef = useRef('')
 
-　// 当日入荷数マップ（商品名→合計入荷数）
-  const inboundQtyMap: Record<string, number> = {}
-  inbounds.forEach(b => {
-    const k = (b.product_name || '').toLowerCase()
-    if (k) inboundQtyMap[k] = (inboundQtyMap[k] || 0) + (b.qty || 0)
-  })
-
-  const getInbound = (codeOrName: string): number | undefined => {
-    const lower = codeOrName.toLowerCase()
-    let total = 0
-    let found = false
-    Object.entries(inboundQtyMap).forEach(([k, v]) => {
-      if (k.includes(lower) || lower.includes(k)) { total += v; found = true }
-    })
-    return found ? total : undefined
-  }
-
-  const getShipped = (codeOrName: string): number | undefined => {
-    const lower = codeOrName.toLowerCase()
-    let total = 0
-    let found = false
-    Object.entries(savedQtyMap).forEach(([k, v]) => {
-      if (k.includes(lower) || lower.includes(k)) { total += v; found = true }
-    })
-    return found ? total : undefined
-  }
-    
-    const lower = codeOrName.toLowerCase()
-    let total = 0
-    let found = false
-    Object.entries(inboundQtyMap).forEach(([k, v]) => {
-      if (k.includes(lower) || lower.includes(k)) { total += v; found = true }
-    })
-    return found ? total : undefined
-  }
-  
-  const getInbound = (codeOrName: string): number | undefined => {
-    const lower = codeOrName.toLowerCase()
-    let total = 0
-    let found = false
-    Object.entries(inboundQtyMap).forEach(([k, v]) => {
-      if (k.includes(lower) || lower.includes(k)) { total += v; found = true }
-    })
-    return found ? total : undefined
-  }
-
-  const getShipped = (codeOrName: string): number | undefined => {
-    const lower = codeOrName.toLowerCase()
-    let total = 0
-    let found = false
-    Object.entries(savedQtyMap).forEach(([k, v]) => {
-      if (k.includes(lower) || lower.includes(k)) { total += v; found = true }
-    })
-    return found ? total : undefined
-  }
-
   const col = CARRIER_COLOR[carrier]
   const isFedex = carrier === 'FedEx'
   const dayShips = shipments.filter(s => s.date === date && s.carrier === carrier)
@@ -167,41 +110,56 @@ export default function ShipmentInput({ supabase, date, shipments, reload, inbou
     if (k) savedQtyMap[k] = (savedQtyMap[k] || 0) + (s.qty || 0)
   })
 
+  const inboundQtyMap: Record<string, number> = {}
+  inbounds.forEach(b => {
+    const k = (b.product_name || '').toLowerCase()
+    if (k) inboundQtyMap[k] = (inboundQtyMap[k] || 0) + (b.qty || 0)
+  })
+
+  const getInbound = (codeOrName: string): number | undefined => {
+    const lower = codeOrName.toLowerCase()
+    let total = 0; let found = false
+    Object.entries(inboundQtyMap).forEach(([k, v]) => {
+      if (k.includes(lower) || lower.includes(k)) { total += v; found = true }
+    })
+    return found ? total : undefined
+  }
+
+  const getShipped = (codeOrName: string): number | undefined => {
+    const lower = codeOrName.toLowerCase()
+    let total = 0; let found = false
+    Object.entries(savedQtyMap).forEach(([k, v]) => {
+      if (k.includes(lower) || lower.includes(k)) { total += v; found = true }
+    })
+    return found ? total : undefined
+  }
+
   const orderLines = parseOrderLines(orderNote)
 
   const updatePack = (i: number, patch: Partial<PackGroup>) =>
     setPacks(p => p.map((g, j) => j === i ? { ...g, ...patch } : g))
   const updateItem = (pi: number, ii: number, patch: Partial<ItemRow>) =>
     setPacks(p => p.map((g, j) => j !== pi ? g : { ...g, items: g.items.map((r, k) => k !== ii ? r : { ...r, ...patch }) }))
-
   const addItem = (pi: number) =>
     setPacks(p => p.map((g, j) => j !== pi ? g : { ...g, items: [...g.items, mkItem()] }))
-
   const addPack = () => {
     const max = Math.max(...packs.map(g => g.packNo))
     setPacks(p => [...p, { ...mkPack(max + 1), op: lastOpRef.current, freight: lastFrRef.current }])
   }
-
   const dupPack = (pi: number) => {
     const src = packs[pi]
     const max = Math.max(...packs.map(g => g.packNo))
     setPacks(p => [...p, { ...src, packNo: max + 1, done: false, track: '' }])
   }
-
   const savePack = async (pi: number) => {
     const pack = packs[pi]
     const recv = pack.recv || recvGlobal
     const agent = agentGlobal
     if (pack.op) lastOpRef.current = pack.op
     if (pack.freight) lastFrRef.current = pack.freight
-
-    await supabase.from('shipments')
-      .delete()
-      .eq('date', date).eq('carrier', carrier).eq('pack_no', pack.packNo)
-
+    await supabase.from('shipments').delete().eq('date', date).eq('carrier', carrier).eq('pack_no', pack.packNo)
     const rows = pack.items.filter(r => r.prod || +r.qty > 0)
     if (!rows.length) { alert('商品を入力してください'); return }
-
     await Promise.all(rows.map(r => supabase.from('shipments').insert({
       id: uid(), date, carrier, pack_no: pack.packNo, domestic,
       order_note: orderNote, carry_over: carryOver,
@@ -215,11 +173,9 @@ export default function ShipmentInput({ supabase, date, shipments, reload, inbou
       invoice_no: '', inventory_note: '',
       chk_liqoa: false, chk_pack: false,
     })))
-
     reload()
     return true
   }
-
   const completePack = async (pi: number) => {
     const ok = await savePack(pi)
     if (!ok) return
@@ -227,7 +183,6 @@ export default function ShipmentInput({ supabase, date, shipments, reload, inbou
     const hasNext = packs.some((g, j) => j !== pi && !g.done)
     if (!hasNext) addPack()
   }
-
   const packTotal = (pack: PackGroup) => {
     const amt = pack.items.reduce((a, r) => a + (+r.qty || 0) * (+r.price || 0), 0)
     const w   = pack.items.reduce((a, r) => a + (+r.qty || 0) * (+r.weight || 0), 0)
@@ -236,7 +191,6 @@ export default function ShipmentInput({ supabase, date, shipments, reload, inbou
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '300px 1fr', height: 'calc(100vh - 52px)', overflow: 'hidden' }}>
-
       <div style={{ background: 'var(--surface)', borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <div style={{ padding: '8px 14px', borderBottom: '1px solid var(--border)', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
           <div className="fg"><label>宛先名</label><input value={recvGlobal} onChange={e => setRecvGlobal(e.target.value)} placeholder="会社名 / 個人名" /></div>
@@ -401,13 +355,10 @@ export default function ShipmentInput({ supabase, date, shipments, reload, inbou
                             onMouseEnter={e => (e.currentTarget.style.background = 'var(--ov-bg)')}
                             onMouseLeave={e => (e.currentTarget.style.background = 'none')}
                           >
-                            {/* 商品名 */}
                             <span style={{ fontWeight: 600, color: 'var(--text)', flex: 1 }}>{p.name}</span>
-                            {/* 単位・グレード */}
                             <span style={{ fontSize: 10, color: 'var(--text3)', whiteSpace: 'nowrap', background: 'var(--sf2)', padding: '1px 6px', borderRadius: 4 }}>
                               {p.unit_type}{p.grade && p.grade !== '無印' ? ` / ${p.grade}` : ''}
                             </span>
-                            {/* 在庫数 */}
                             {getInventory(p.code) !== undefined && (
                               <span style={{
                                 fontSize: 10, padding: '1px 6px', borderRadius: 8, whiteSpace: 'nowrap',
@@ -418,7 +369,6 @@ export default function ShipmentInput({ supabase, date, shipments, reload, inbou
                                 在庫 {getInventory(p.code)}
                               </span>
                             )}
-                            {/* 当日入荷数 */}
                             {getInbound(p.name) !== undefined && (
                               <span style={{
                                 fontSize: 10, padding: '1px 6px', borderRadius: 8, whiteSpace: 'nowrap',
@@ -428,7 +378,6 @@ export default function ShipmentInput({ supabase, date, shipments, reload, inbou
                                 入荷 {getInbound(p.name)}
                               </span>
                             )}
-                            {/* 当日出荷済み */}
                             {getShipped(p.name) !== undefined && (
                               <span style={{
                                 fontSize: 10, padding: '1px 6px', borderRadius: 8, whiteSpace: 'nowrap',
@@ -437,7 +386,6 @@ export default function ShipmentInput({ supabase, date, shipments, reload, inbou
                               }}>
                                 出荷済 {getShipped(p.name)}
                               </span>
-                            )}
                             )}
                           </div>
                         ))}
