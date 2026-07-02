@@ -1,4 +1,4 @@
-export type Carrier = 'FedEx' | 'DHL' | 'ヤマト' | 'UPS' | '海外代行'
+export type Carrier = 'FedEx' | 'DHL' | 'ヤマト' | 'UPS' | '代行依頼'
 export type InbSection = 'corporate' | 'purchase' | 'postal'
 
 export interface Shipment {
@@ -48,14 +48,14 @@ export interface Inbound {
   updated_at?: string
 }
 
-export const CARRIERS: Carrier[] = ['FedEx', 'DHL', 'ヤマト', 'UPS', '海外代行']
+export const CARRIERS: Carrier[] = ['FedEx', 'DHL', 'ヤマト', 'UPS', '代行依頼']
 
 export const CARRIER_COLOR: Record<Carrier, string> = {
   FedEx:    '#A78BCA',
   DHL:      '#C4A030',
   ヤマト:    '#5BAD82',
   UPS:      '#B07850',
-  海外代行:  '#6B9FD4',
+  代行依頼:  '#6B9FD4',
 }
 
 export const CARRIER_BG: Record<Carrier, string> = {
@@ -63,7 +63,7 @@ export const CARRIER_BG: Record<Carrier, string> = {
   DHL:      '#FEFBEE',
   ヤマト:    '#EDF8F3',
   UPS:      '#FBF5EF',
-  海外代行:  '#EEF5FC',
+  代行依頼:  '#EEF5FC',
 }
 
 export const INB_SECTION_LABEL: Record<InbSection, string> = {
