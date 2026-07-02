@@ -7,6 +7,7 @@ import { createQuoteClient } from '@/lib/supabase'
 interface Props {
   supabase: SupabaseClient
   date: string
+  setDate?: (d: string) => void
   inbounds: Inbound[]
   reload: () => void
 }
@@ -17,7 +18,7 @@ const SEC_BD:    Record<InbSection, string> = { corporate: 'var(--yam-bd)', purc
 
 interface ItemRow { prod: string; qty: string; price: string }
 
-export default function InboundInput({ supabase, date, inbounds, reload }: Props) {
+export default function InboundInput({ supabase, date, setDate, inbounds, reload }: Props) {
   const [products, setProducts] = useState<{code: string; name: string; recore_pd_code?: string | null; grade?: string; unit_type?: string}[]>([])
   const [prodSearch, setProdSearch] = useState('')
   const [inventoryByPd, setInventoryByPd] = useState<Record<string, number>>({})
@@ -158,9 +159,15 @@ export default function InboundInput({ supabase, date, inbounds, reload }: Props
 
       {/* 右エリア */}
       <div style={{ overflowY: 'auto', padding: '18px 20px' }}>
-        <div style={{ marginBottom: 14 }}>
-          <div style={{ fontSize: 19, fontWeight: 800 }}>入荷入力</div>
-          <div style={{ fontSize: 12, color: 'var(--text2)' }}>{fmtDate(date)}（{weekday(date)}）</div>
+        <div style={{ marginBottom: 14, display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap' }}>
+          <div>
+            <div style={{ fontSize: 19, fontWeight: 800 }}>入荷入力</div>
+            <div style={{ fontSize: 12, color: 'var(--text2)' }}>{fmtDate(date)}（{weekday(date)}）</div>
+          </div>
+          <div className="fg" style={{ maxWidth: 170 }}>
+            <label>日付</label>
+            <input type="date" value={date} onChange={e => setDate?.(e.target.value)} />
+          </div>
         </div>
 
         {/* タブ */}
