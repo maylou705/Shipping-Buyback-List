@@ -153,7 +153,9 @@ export default function InventoryImport({ supabase, onImported }: Props) {
       const invRow = latestInv.find(r => r.product_code === u.recore_pd_code && GRADE_MAP[r.grade] === u.grade)
       if (invRow && invRow.qty > 0) {
         const row = productMap.get(product.id)!
-        row.gradeQty[invRow.grade] = (row.gradeQty[invRow.grade] || 0) + invRow.qty
+        // CASEはunit_typeで判別してCASEキーに格納
+        const colKey = u.unit_type === 'CASE' ? 'CASE' : invRow.grade
+        row.gradeQty[colKey] = (row.gradeQty[colKey] || 0) + invRow.qty
       }
     }
   })
