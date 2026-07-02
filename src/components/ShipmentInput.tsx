@@ -109,8 +109,16 @@ export default function ShipmentInput({ supabase, date, shipments, reload, inbou
   })
 
   const getInbound = (codeOrName: string): number | undefined => {
+    const lower = codeOrName.toLowerCase()
+    let total = 0
+    let found = false
+    Object.entries(inboundQtyMap).forEach(([k, v]) => {
+      if (k.includes(lower) || lower.includes(k)) { total += v; found = true }
+    })
+    return found ? total : undefined
+  }
 
-    const getShipped = (codeOrName: string): number | undefined => {
+  const getShipped = (codeOrName: string): number | undefined => {
     const lower = codeOrName.toLowerCase()
     let total = 0
     let found = false
