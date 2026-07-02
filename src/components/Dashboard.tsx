@@ -22,6 +22,7 @@ export default function Dashboard({ supabase, date, shipments, inbounds, reload 
   const aIn  = inbounds.reduce((a, b)  => a + (b.amount || 0), 0)
 
   const toggle = (k: string) => setCollapsed(p => ({ ...p, [k]: !p[k] }))
+  const inboundOpen = collapsed['inbound'] !== undefined ? !collapsed['inbound'] : di.length > 0
 
   const chkInb = async (id: string, field: 'chk_liqoa' | 'arrived', val: boolean) => {
     await supabase.from('inbounds').update({ [field]: val }).eq('id', id)
@@ -65,7 +66,7 @@ export default function Dashboard({ supabase, date, shipments, inbounds, reload 
         const col    = CARRIER_COLOR[carrier]
         const bg     = CARRIER_BG[carrier]
         const key    = `carrier_${carrier}`
-        const open   = !collapsed[key]
+        const open   = collapsed[key] !== undefined ? !collapsed[key] : packs.length > 0
 
         return (
           <div key={carrier} className="card" style={{ marginBottom: 12 }}>
@@ -73,9 +74,11 @@ export default function Dashboard({ supabase, date, shipments, inbounds, reload 
               <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <span style={{ fontWeight: 800, fontSize: 13 }}>{carrier}</span>
                 <span style={{ fontSize: 11, color: 'var(--text2)' }}>{packs.length}梱包 / {cRows.length}商品</span>
-                <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 8, ...(allChk && cRows.length ? { background: '#EDF8F3', color: '#16a34a', border: '1px solid #AADDC2' } : { background: '#FEF9EC', color: 'var(--warn)', border: '1px solid #EEE098' }) }}>
-                  {allChk && cRows.length ? '✓ 完了' : '作業中'}
-                </span>
+                {packs.length > 0 && (
+                  <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 8, ...(allChk ? { background: '#EDF8F3', color: '#16a34a', border: '1px solid #AADDC2' } : { background: '#FEF9EC', color: 'var(--warn)', border: '1px solid #EEE098' }) }}>
+                    {allChk ? '✓ 完了' : '作業中'}
+                  </span>
+                )}
               </span>
               <span style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                 <span style={{ fontSize: 11, color: 'var(--text2)' }}>{cW.toFixed(2)}kg</span>
@@ -98,13 +101,16 @@ export default function Dashboard({ supabase, date, shipments, inbounds, reload 
       {/* 入荷セクション */}
       <div className="card" style={{ marginBottom: 12 }}>
         <div className="card-head" style={{ cursor: 'pointer', borderTop: '3px solid var(--inbound)', background: 'var(--inb-bg)' }} onClick={() => toggle('inbound')}>
-          <span style={{ fontWeight: 800, fontSize: 13 }}>入荷</span>
+          <span style={{ fontWeight: 800, fontSize: 13, display: 'flex', alignItems: 'center', gap: 10 }}>
+            入荷
+            <span style={{ fontSize: 11, color: 'var(--text2)', fontWeight: 400 }}>{di.length}件</span>
+          </span>
           <span style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <span style={{ fontWeight: 800, fontSize: 13 }}>¥{fmt(tIn)}</span>
-            <span style={{ color: 'var(--text3)', fontSize: 12 }}>{!collapsed['inbound'] ? '▲' : '▼'}</span>
+            <span style={{ color: 'var(--text3)', fontSize: 12 }}>{inboundOpen ? '▲' : '▼'}</span>
           </span>
         </div>
-        {!collapsed['inbound'] && (
+        {inboundOpen && (
           <div style={{ padding: 0 }}>
             {!di.length ? <div className="empty">入荷データなし</div> : (
               <div style={{ overflowX: 'auto' }}>
