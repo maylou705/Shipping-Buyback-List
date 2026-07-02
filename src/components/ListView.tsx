@@ -1,5 +1,5 @@
 'use client'
-import React from 'react'
+import React, { useState } from 'react'
 import { Shipment, Inbound, CARRIERS, CARRIER_COLOR, fmt, fmtDate, weekday } from '@/lib/types'
 import { SupabaseClient } from '@supabase/supabase-js'
 import PackGroupTable, { buildPackGroups } from './PackGroupTable'
@@ -18,6 +18,15 @@ const editInputStyle: React.CSSProperties = {
 
 export default function ListView({ supabase, shipments, inbounds, reload }: Props) {
   const dates = [...new Set([...shipments.map(s => s.date), ...inbounds.map(b => b.date)])].sort().reverse()
+  const [editingInbDates, setEditingInbDates] = useState<Set<string>>(new Set())
+
+  const toggleInbEdit = (d: string) => {
+    setEditingInbDates(prev => {
+      const next = new Set(prev)
+      next.has(d) ? next.delete(d) : next.add(d)
+      return next
+    })
+  }
 
   const updateInbound = async (id: string, patch: Record<string, any>) => {
     await supabase.from('inbounds').update(patch).eq('id', id)
@@ -70,8 +79,12 @@ export default function ListView({ supabase, shipments, inbounds, reload }: Prop
             })}
             {di.length > 0 && (
               <div style={{ borderTop: '1px solid var(--border)' }}>
-                <div style={{ padding: '6px 14px', background: 'var(--inb-bg)', fontSize: 11, fontWeight: 700, color: 'var(--inbound)' }}>
-                  入荷 {di.length}件
+                <div style={{ padding: '6px 14px', background: 'var(--inb-bg)', fontSize: 11, fontWeight: 700, color: 'var(--inbound)', display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span>入荷 {di.length}件</span>
+                  <button onClick={() => toggleInbEdit(d)} className="btn btn-xs btn-outline"
+                    style={{ marginLeft: 'auto', color: editingInbDates.has(d) ? 'var(--overseas)' : undefined, borderColor: editingInbDates.has(d) ? 'var(--ov-bd)' : undefined }}>
+                    {editingInbDates.has(d) ? '編集終了' : '✎ 編集'}
+                  </button>
                 </div>
                 <div style={{ overflowX: 'auto' }}>
                   <table>
@@ -80,10 +93,10 @@ export default function ListView({ supabase, shipments, inbounds, reload }: Prop
                       <th style={{ textAlign: 'right' }}>個数</th>
                       <th style={{ textAlign: 'right' }}>単価</th>
                       <th style={{ textAlign: 'right' }}>金額</th>
-                      <th style={{ width: 1 }}></th>
+                      {editingInbDates.has(d) && <th style={{ width: 1 }}></th>}
                     </tr></thead>
                     <tbody>
-                      {di.map(x => (
+                      {di.map(x => editingInbDates.has(d) ? (
                         <tr key={x.id}>
                           <td style={{ minWidth: 120 }}>
                             <input
@@ -125,6 +138,14 @@ export default function ListView({ supabase, shipments, inbounds, reload }: Prop
                           <td>
                             <button onClick={() => delInbound(x.id)} className="btn btn-xs btn-outline" title="この行を削除">✕</button>
                           </td>
+                        </tr>
+                      ) : (
+                        <tr key={x.id}>
+                          <td>{x.company || '-'}</td>
+                          <td style={{ fontWeight: 600 }}>{x.product_name || '-'}</td>
+                          <td style={{ textAlign: 'right' }}>{x.qty}</td>
+                          <td style={{ textAlign: 'right' }}>¥{fmt(x.unit_price)}</td>
+                          <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--inbound)' }}>¥{fmt(x.amount)}</td>
                         </tr>
                       ))}
                     </tbody>
