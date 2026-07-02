@@ -7,11 +7,11 @@ import { createQuoteClient } from '@/lib/supabase'
 interface Props {
   supabase: SupabaseClient
   date: string
+  setDate?: (d: string) => void
   shipments: Shipment[]
   reload: () => void
   inbounds?: { product_name: string; qty: number }[]
 }
-
 interface ItemRow { prod: string; qty: string; price: string; weight: string }
 interface PackGroup { packNo: number; done: boolean; items: ItemRow[]; track: string; recv: string; rem: string; freight: string; op: string }
 
@@ -33,7 +33,7 @@ function parseOrderLines(text: string) {
 
 interface ProductMaster { id: string; unit_type: string; short_code: string | null; recore_pd_code: string | null; grade: string }
 
-export default function ShipmentInput({ supabase, date, shipments, reload, inbounds = [] }: Props) {
+export default function ShipmentInput({ supabase, date, setDate, shipments, reload, inbounds = [] }: Props) {
   const [products, setProducts] = useState<{code: string; name: string; recore_pd_code?: string | null; grade?: string; unit_type?: string}[]>([])
   const [productMaster, setProductMaster] = useState<ProductMaster[]>([])
   const [prodSearch, setProdSearch] = useState('')
@@ -262,7 +262,12 @@ export default function ShipmentInput({ supabase, date, shipments, reload, inbou
       </div>
 
       <div style={{ overflowY: 'auto', padding: '16px 18px' }}>
-        <div style={{ display: 'flex', gap: 4, marginBottom: 14, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 14, marginBottom: 14, flexWrap: 'wrap' }}>
+          <div className="fg" style={{ maxWidth: 170 }}>
+            <label>日付</label>
+            <input type="date" value={date} onChange={e => setDate?.(e.target.value)} />
+          </div>
+          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
           {CARRIERS.map(c => (
             <button key={c} onClick={() => setCarrier(c)} style={{
               padding: '6px 14px', borderRadius: 'var(--radius-sm)',
@@ -274,6 +279,7 @@ export default function ShipmentInput({ supabase, date, shipments, reload, inbou
               {c}
             </button>
           ))}
+          </div>
         </div>
 
         {packs.map((pack, pi) => {
