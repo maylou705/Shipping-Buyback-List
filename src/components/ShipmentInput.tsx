@@ -69,12 +69,11 @@ export default function ShipmentInput({ supabase, date, shipments, reload, inbou
   }, [])
 
   const getInventory = (codeOrName: string): number | undefined => {
-    const unit = products.find(p => p.code === codeOrName) as any
+    const unit = products.find(p => p.code === codeOrName && p.grade !== '★シュリ') as any
     if (!unit?.recore_pd_code) return undefined
     const gradeMap: Record<string, string> = {
       '無印': 'シュリンク有',
       'シュリンク無': 'シュリンク無',
-      '★シュリ': '★',
       'ぺリなし': 'その他',
     }
     const recoreGrade = gradeMap[unit.grade] || unit.grade
