@@ -73,8 +73,8 @@ export default function ShipmentInput({ supabase, date, shipments, reload, inbou
     })
   }, [])
 
-  const getInventory = (codeOrName: string): number | undefined => {
-    const unit = products.find(p => p.code === codeOrName && p.grade !== '★シュリ') as any
+  const getInventory = (codeOrName: string, grade?: string): number | undefined => {
+    const unit = products.find(p => p.code === codeOrName && (grade ? p.grade === grade : true)) as any
     if (!unit?.recore_pd_code) return undefined
     const gradeMap: Record<string, string> = {
       '無印': 'シュリンク有',
@@ -363,16 +363,19 @@ export default function ShipmentInput({ supabase, date, shipments, reload, inbou
                             <span style={{ fontSize: 10, color: 'var(--text3)', whiteSpace: 'nowrap', background: 'var(--sf2)', padding: '1px 6px', borderRadius: 4 }}>
                               {p.unit_type}{p.grade && p.grade !== '無印' ? ` / ${p.grade}` : ''}
                             </span>
-                            {getInventory(p.code) !== undefined && (
-                              <span style={{
-                                fontSize: 10, padding: '1px 6px', borderRadius: 8, whiteSpace: 'nowrap',
-                                background: getInventory(p.code)! > 0 ? 'var(--ov-bg)' : '#FEF2F2',
-                                color: getInventory(p.code)! > 0 ? 'var(--overseas)' : 'var(--danger)',
-                                border: `1px solid ${getInventory(p.code)! > 0 ? 'var(--ov-bd)' : '#FACACA'}`,
-                              }}>
-                                在庫 {getInventory(p.code)}
-                              </span>
-                            )}
+                            {(() => {
+                              const inv = getInventory(p.code, p.grade)
+                              return inv !== undefined ? (
+                                <span style={{
+                                  fontSize: 10, padding: '1px 6px', borderRadius: 8, whiteSpace: 'nowrap',
+                                  background: inv > 0 ? 'var(--ov-bg)' : '#FEF2F2',
+                                  color: inv > 0 ? 'var(--overseas)' : 'var(--danger)',
+                                  border: `1px solid ${inv > 0 ? 'var(--ov-bd)' : '#FACACA'}`,
+                                }}>
+                                  在庫 {inv}
+                                </span>
+                              ) : null
+                            })()}
                             {getInbound(p.name) !== undefined && (
                               <span style={{
                                 fontSize: 10, padding: '1px 6px', borderRadius: 8, whiteSpace: 'nowrap',
