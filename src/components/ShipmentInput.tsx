@@ -9,6 +9,7 @@ interface Props {
   date: string
   shipments: Shipment[]
   reload: () => void
+  inbounds?: { product_name: string; qty: number }[]
 }
 
 interface ItemRow { prod: string; qty: string; price: string; weight: string }
@@ -32,7 +33,7 @@ function parseOrderLines(text: string) {
 
 interface ProductMaster { id: string; unit_type: string; short_code: string | null; recore_pd_code: string | null; grade: string }
 
-export default function ShipmentInput({ supabase, date, shipments, reload }: Props) {
+export default function ShipmentInput({ supabase, date, shipments, reload, inbounds = [] }: Props) {
   const [products, setProducts] = useState<{code: string; name: string; recore_pd_code?: string | null; grade?: string; unit_type?: string}[]>([])
   const [productMaster, setProductMaster] = useState<ProductMaster[]>([])
   const [prodSearch, setProdSearch] = useState('')
@@ -100,6 +101,23 @@ export default function ShipmentInput({ supabase, date, shipments, reload }: Pro
   const lastOpRef = useRef('')
   const lastFrRef = useRef('')
 
+　// 当日入荷数マップ（商品名→合計入荷数）
+  const inboundQtyMap: Record<string, number> = {}
+  inbounds.forEach(b => {
+    const k = (b.product_name || '').toLowerCase()
+    if (k) inboundQtyMap[k] = (inboundQtyMap[k] || 0) + (b.qty || 0)
+  })
+
+  const getInbound = (codeOrName: string): number | undefined => {
+    const lower = codeOrName.toLowerCase()
+    let total = 0
+    let found = false
+    Object.entries(inboundQtyMap).forEach(([k, v]) => {
+      if (k.includes(lower) || lower.includes(k)) { total += v; found = true }
+    })
+    return found ? total : undefined
+  }
+  
   const col = CARRIER_COLOR[carrier]
   const isFedex = carrier === 'FedEx'
   const dayShips = shipments.filter(s => s.date === date && s.carrier === carrier)
@@ -332,16 +350,17 @@ export default function ShipmentInput({ supabase, date, shipments, reload }: Pro
                         {filtered.map(p => (
                           <div key={p.code}
                             onMouseDown={() => { updateItem(pi, ii, { prod: p.name }); setProdSearch('') }}
-                            style={{ padding: '7px 12px', cursor: 'pointer', fontSize: 12, borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 10 }}
+                            style={{ padding: '7px 12px', cursor: 'pointer', fontSize: 12, borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 8 }}
                             onMouseEnter={e => (e.currentTarget.style.background = 'var(--ov-bg)')}
                             onMouseLeave={e => (e.currentTarget.style.background = 'none')}
                           >
-                            <span style={{ fontSize: 10, color: 'var(--text3)', marginLeft: 6, whiteSpace: 'nowrap' }}>
+                            {/* 商品名 */}
+                            <span style={{ fontWeight: 600, color: 'var(--text)', flex: 1 }}>{p.name}</span>
+                            {/* 単位・グレード */}
+                            <span style={{ fontSize: 10, color: 'var(--text3)', whiteSpace: 'nowrap', background: 'var(--sf2)', padding: '1px 6px', borderRadius: 4 }}>
                               {p.unit_type}{p.grade && p.grade !== '無印' ? ` / ${p.grade}` : ''}
                             </span>
-                            <span style={{ fontSize: 10, color: 'var(--text3)', marginLeft: 6, whiteSpace: 'nowrap' }}>
-                              {p.unit_type}{p.grade && p.grade !== '無印' ? ` / ${p.grade}` : ''}
-                            </span>
+                            {/* 在庫数 */}
                             {getInventory(p.code) !== undefined && (
                               <span style={{
                                 fontSize: 10, padding: '1px 6px', borderRadius: 8, whiteSpace: 'nowrap',
@@ -350,6 +369,16 @@ export default function ShipmentInput({ supabase, date, shipments, reload }: Pro
                                 border: `1px solid ${getInventory(p.code)! > 0 ? 'var(--ov-bd)' : '#FACACA'}`,
                               }}>
                                 在庫 {getInventory(p.code)}
+                              </span>
+                            )}
+                            {/* 当日入荷数 */}
+                            {getInbound(p.name) !== undefined && (
+                              <span style={{
+                                fontSize: 10, padding: '1px 6px', borderRadius: 8, whiteSpace: 'nowrap',
+                                background: 'var(--inb-bg)', color: 'var(--inbound)',
+                                border: '1px solid var(--inb-bd)',
+                              }}>
+                                入荷 {getInbound(p.name)}
                               </span>
                             )}
                           </div>
