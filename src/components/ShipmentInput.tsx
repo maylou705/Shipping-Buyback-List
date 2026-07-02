@@ -336,8 +336,12 @@ export default function ShipmentInput({ supabase, date, shipments, reload }: Pro
                             onMouseEnter={e => (e.currentTarget.style.background = 'var(--ov-bg)')}
                             onMouseLeave={e => (e.currentTarget.style.background = 'none')}
                           >
-                            <span style={{ fontSize: 10, color: 'var(--text3)', minWidth: 60 }}>{p.code}</span>
-                            <span style={{ color: 'var(--text)', fontWeight: 600, flex: 1 }}>{p.name}</span>
+                            <span style={{ fontSize: 10, color: 'var(--text3)', marginLeft: 6, whiteSpace: 'nowrap' }}>
+                              {p.unit_type}{p.grade && p.grade !== '無印' ? ` / ${p.grade}` : ''}
+                            </span>
+                            <span style={{ fontSize: 10, color: 'var(--text3)', marginLeft: 6, whiteSpace: 'nowrap' }}>
+                              {p.unit_type}{p.grade && p.grade !== '無印' ? ` / ${p.grade}` : ''}
+                            </span>
                             {getInventory(p.code) !== undefined && (
                               <span style={{
                                 fontSize: 10, padding: '1px 6px', borderRadius: 8, whiteSpace: 'nowrap',
