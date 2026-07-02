@@ -56,13 +56,21 @@ export default function ShipmentInput({ supabase, date, shipments, reload, inbou
         setProductMaster(units as any)
       }
     })
-    supabase.from('inventory').select('product_code, grade, qty').then(({ data: inv }) => {
-      if (inv) {
-        const pdMap: Record<string, number> = {}
-        inv.forEach((r: any) => {
-          const key = `${r.product_code}__${r.grade}`
-          pdMap[key] = (pdMap[key] || 0) + r.qty
-        })
+    // 最新インポート日のデータのみ取得
+    supabase.from('inventory').select('imported_at').order('imported_at', { ascending: false }).limit(1).then(({ data: latest }) => {
+      if (!latest?.length) return
+      const latestDate = latest[0].imported_at
+      supabase.from('inventory').select('product_code, grade, qty').eq('imported_at', latestDate).then(({ data: inv }) => {
+        if (inv) {
+          const pdMap: Record<string, number> = {}
+          inv.forEach((r: any) => {
+            const key = `${r.product_code}__${r.grade}`
+            pdMap[key] = (pdMap[key] || 0) + r.qty
+          })
+          setInventoryByPd(pdMap)
+        }
+      })
+    })
         setInventoryByPd(pdMap)
       }
     })
