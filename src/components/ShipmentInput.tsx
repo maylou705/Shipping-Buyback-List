@@ -207,8 +207,8 @@ export default function ShipmentInput({ supabase, date, shipments, reload, inbou
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
             <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--overseas)' }}>📋 元オーダー</span>
             <span style={{ display: 'flex', border: '1.5px solid var(--ov-bd)', borderRadius: 20, overflow: 'hidden', fontSize: 11, fontWeight: 700 }}>
-              <button onClick={() => setDomestic(false)} style={{ padding: '3px 10px', border: 'none', cursor: 'pointer', background: !domestic ? 'var(--overseas)' : 'var(--ov-bg)', color: !domestic ? '#fff' : 'var(--overseas)' }}>海外向け</button>
-              <button onClick={() => setDomestic(true)}  style={{ padding: '3px 10px', border: 'none', cursor: 'pointer', background:  domestic ? 'var(--yamato)' : 'var(--yam-bg)', color:  domestic ? '#fff' : 'var(--yamato)' }}>代行受持</button>
+              <button onClick={() => setDomestic(false)} style={{ padding: '3px 10px', border: 'none', cursor: 'pointer', background: !domestic ? 'var(--overseas)' : 'var(--ov-bg)', color: !domestic ? '#fff' : 'var(--overseas)' }}>海外</button>
+              <button onClick={() => setDomestic(true)}  style={{ padding: '3px 10px', border: 'none', cursor: 'pointer', background:  domestic ? 'var(--yamato)' : 'var(--yam-bg)', color:  domestic ? '#fff' : 'var(--yamato)' }}>国内</button>
             </span>
           </div>
           <textarea value={orderNote} onChange={e => setOrderNote(e.target.value)} rows={8}
