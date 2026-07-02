@@ -74,6 +74,12 @@ export default function PackGroupTable({ packs, color, showChk, showDelete, edit
     onUpdate?.()
   }
 
+  const updatePackDate = async (carrier: string, packNo: number, newDate: string) => {
+    if (!supabase || !newDate) return
+    await supabase.from('shipments').update({ date: newDate }).eq('carrier', carrier).eq('pack_no', packNo)
+    onUpdate?.()
+  }
+
   const delRow = async (id: string) => {
     if (!supabase) return
     if (!confirm('この商品行を削除しますか？')) return
@@ -99,18 +105,51 @@ export default function PackGroupTable({ packs, color, showChk, showDelete, edit
             {/* 梱包ヘッダ */}
             <div style={{
               padding: '7px 14px', background: 'var(--sf2)',
-              display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
               borderBottom: '1px solid var(--border)',
             }}>
-              <strong style={{ fontSize: 12, color }}>{`梱包 ${pack.packNo}`}</strong>
-              <span style={{ fontSize: 11, fontWeight: 700, color }}>¥{fmt(packAmt)}</span>
-              <span style={{ fontSize: 11, color: 'var(--text2)' }}>総重量 <strong>{packW.toFixed(2)}kg</strong></span>
-              {first.recipient && <span style={{ fontSize: 11, color: 'var(--text2)' }}>宛先: <strong>{first.recipient}</strong></span>}
-              {first.agent     && <span style={{ fontSize: 11, color: 'var(--text2)' }}>代行: {first.agent}</span>}
-              {first.tracking_no && <span style={{ fontSize: 10, color: 'var(--text3)' }}>問番: {first.tracking_no}</span>}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <strong style={{ fontSize: 12, color }}>{`梱包 ${pack.packNo}`}</strong>
+                <span style={{ fontSize: 11, fontWeight: 700, color }}>¥{fmt(packAmt)}</span>
+                <span style={{ fontSize: 11, color: 'var(--text2)' }}>総重量 <strong>{packW.toFixed(2)}kg</strong></span>
+                {first.recipient && <span style={{ fontSize: 11, color: 'var(--text2)' }}>宛先: <strong>{first.recipient}</strong></span>}
+                {first.agent     && <span style={{ fontSize: 11, color: 'var(--text2)' }}>代行: {first.agent}</span>}
+                {first.tracking_no && <span style={{ fontSize: 10, color: 'var(--text3)' }}>問番: {first.tracking_no}</span>}
+
+                {isEditing && (
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <span style={{ fontSize: 10, color: 'var(--text2)', whiteSpace: 'nowrap' }}>日付</span>
+                    <input
+                      type="date" defaultValue={first.date}
+                      onChange={e => updatePackDate(pack.carrier, pack.packNo, e.target.value)}
+                      style={{ fontSize: 11, padding: '2px 6px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 4, outline: 'none', color: 'var(--text)' }}
+                    />
+                  </span>
+                )}
+
+                {editable && (
+                  <button onClick={() => toggleEdit(packKey)} className="btn btn-xs btn-outline"
+                    style={{ marginLeft: 'auto', color: isEditing ? 'var(--overseas)' : undefined, borderColor: isEditing ? 'var(--ov-bd)' : undefined }}>
+                    {isEditing ? '編集終了' : '✎ 編集'}
+                  </button>
+                )}
+
+                {showDelete && (
+                  <button onClick={() => delPack(pack.carrier, pack.packNo)} className="btn btn-xs btn-outline" style={{ marginLeft: editable ? 0 : 'auto' }}>
+                    梱包削除
+                  </button>
+                )}
+              </div>
 
               {showChk && (
-                <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px dashed var(--border)', display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+                  <span style={{
+                    fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 8, whiteSpace: 'nowrap',
+                    ...(allL && allP
+                      ? { background: '#EDF8F3', color: '#16a34a', border: '1px solid #AADDC2' }
+                      : { background: '#FEF9EC', color: 'var(--warn)', border: '1px solid #EEE098' }),
+                  }}>
+                    {allL && allP ? '✓ 完了' : '未完了'}
+                  </span>
                   <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, cursor: 'pointer', color: 'var(--text2)' }}>
                     <input type="checkbox" checked={allL} onChange={e => setChkAll(pack.carrier, pack.packNo, 'chk_liqoa', e.target.checked)}
                       style={{ width: 14, height: 14, accentColor: 'var(--overseas)' }} />
@@ -130,20 +169,7 @@ export default function PackGroupTable({ packs, color, showChk, showDelete, edit
                       style={{ width: 90, fontSize: 11, padding: '3px 6px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 4, outline: 'none', color: 'var(--text)' }}
                     />
                   </div>
-                </span>
-              )}
-
-              {editable && (
-                <button onClick={() => toggleEdit(packKey)} className="btn btn-xs btn-outline"
-                  style={{ marginLeft: showChk ? 0 : 'auto', color: isEditing ? 'var(--overseas)' : undefined, borderColor: isEditing ? 'var(--ov-bd)' : undefined }}>
-                  {isEditing ? '編集終了' : '✎ 編集'}
-                </button>
-              )}
-
-              {showDelete && (
-                <button onClick={() => delPack(pack.carrier, pack.packNo)} className="btn btn-xs btn-outline" style={{ marginLeft: (showChk || editable) ? 0 : 'auto' }}>
-                  梱包削除
-                </button>
+                </div>
               )}
             </div>
 
