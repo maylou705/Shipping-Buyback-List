@@ -87,3 +87,26 @@ th { background: var(--sf2); color: var(--text2); font-weight: 700; padding: 6px
 td { padding: 6px 8px; border-bottom: 1px solid var(--border); color: var(--text); vertical-align: middle; }
 tr:last-child td { border-bottom: none; }
 tr:hover td { background: #f8f9fb; }
+
+/* ── スマホ幅対応 ── */
+@media (max-width: 760px) {
+  body { font-size: 12px; }
+
+  .app-header { padding: 0 10px !important; gap: 6px !important; }
+  .app-header-date { display: none !important; }
+  .app-header-nav { flex: 1 1 auto; }
+
+  .app-grid { grid-template-columns: 1fr !important; grid-auto-rows: min-content 1fr; height: auto !important; overflow: visible !important; }
+  .app-sidebar {
+    border-right: none !important;
+    border-bottom: 1px solid var(--border);
+    max-height: 40vh;
+    overflow-y: auto;
+  }
+  .app-main { padding: 12px !important; overflow-x: hidden !important; }
+
+  table { font-size: 10.5px; }
+  th, td { padding: 4px 5px !important; }
+
+  .card-head { padding: 8px 10px; flex-wrap: wrap; gap: 6px; }
+}
