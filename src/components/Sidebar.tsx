@@ -41,7 +41,7 @@ export default function Sidebar({ date, setDate, shipments, inbounds }: Props) {
     allDates.filter(d => d.startsWith(m)).reduce((a, d) => a + count(d), 0)
 
   return (
-    <aside style={{
+    <aside className="app-sidebar" style={{
       background: 'var(--surface)', borderRight: '1px solid var(--border)',
       overflowY: 'auto', padding: '10px 0',
     }}>
