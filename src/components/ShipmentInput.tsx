@@ -12,6 +12,7 @@ interface Props {
   reload: () => void
   inbounds?: { product_name: string; qty: number }[]
 }
+
 interface ItemRow { prod: string; qty: string; price: string; weight: string }
 interface PackGroup { packNo: number; done: boolean; items: ItemRow[]; track: string; recv: string; rem: string; freight: string; op: string }
 
@@ -102,8 +103,19 @@ export default function ShipmentInput({ supabase, date, setDate, shipments, relo
   const [recvGlobal, setRecvGlobal] = useState('')
   const [agentGlobal,setAgentGlobal]= useState('')
   const [packs,      setPacks]      = useState<PackGroup[]>([mkPack(1)])
+  const [noteOpen,   setNoteOpen]   = useState(true)
   const lastOpRef = useRef('')
   const lastFrRef = useRef('')
+
+  // キャリアを切り替えたら入力中の梱包をリセット（別キャリアのデータが混ざるのを防ぐ）
+  useEffect(() => {
+    setPacks([mkPack(1)])
+  }, [carrier])
+
+  // スマホ幅では元オーダーメモを初期状態で閉じておく
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.innerWidth < 760) setNoteOpen(false)
+  }, [])
 
   const col = CARRIER_COLOR[carrier]
   const isFedex = carrier === 'FedEx'
@@ -195,25 +207,34 @@ export default function ShipmentInput({ supabase, date, setDate, shipments, relo
   }
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '300px 1fr', height: 'calc(100vh - 52px)', overflow: 'hidden' }}>
-      <div style={{ background: 'var(--surface)', borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+    <div className="shipment-grid" style={{ display: 'grid', gridTemplateColumns: '300px 1fr', height: 'calc(100vh - 52px)', overflow: 'hidden' }}>
+      <div className="shipment-side" style={{ background: 'var(--surface)', borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <div style={{ padding: '8px 14px', borderBottom: '1px solid var(--border)', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
           <div className="fg"><label>宛先名</label><input value={recvGlobal} onChange={e => setRecvGlobal(e.target.value)} placeholder="会社名 / 個人名" /></div>
           <div className="fg"><label>代行者名</label><input value={agentGlobal} onChange={e => setAgentGlobal(e.target.value)} placeholder="代行者名" /></div>
         </div>
-        <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--border)', background: 'var(--ov-bg)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-            <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--overseas)' }}>📋 元オーダー</span>
-            <span style={{ display: 'flex', border: '1.5px solid var(--ov-bd)', borderRadius: 20, overflow: 'hidden', fontSize: 11, fontWeight: 700 }}>
-              <button onClick={() => setDomestic(false)} style={{ padding: '3px 10px', border: 'none', cursor: 'pointer', background: !domestic ? 'var(--overseas)' : 'var(--ov-bg)', color: !domestic ? '#fff' : 'var(--overseas)' }}>海外</button>
-              <button onClick={() => setDomestic(true)}  style={{ padding: '3px 10px', border: 'none', cursor: 'pointer', background:  domestic ? 'var(--yamato)' : 'var(--yam-bg)', color:  domestic ? '#fff' : 'var(--yamato)' }}>国内</button>
+        <div style={{ padding: noteOpen ? '10px 14px' : '8px 14px', borderBottom: '1px solid var(--border)', background: 'var(--ov-bg)' }}>
+          <div onClick={() => setNoteOpen(v => !v)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: noteOpen ? 8 : 0, cursor: 'pointer', userSelect: 'none' }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--overseas)', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: 9 }}>{noteOpen ? '▾' : '▸'}</span>
+              📋 元オーダー
+              {!noteOpen && orderNote && <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--text3)' }}>（入力あり）</span>}
             </span>
+            {noteOpen && (
+              <span onClick={e => e.stopPropagation()} style={{ display: 'flex', border: '1.5px solid var(--ov-bd)', borderRadius: 20, overflow: 'hidden', fontSize: 11, fontWeight: 700 }}>
+                <button onClick={() => setDomestic(false)} style={{ padding: '3px 10px', border: 'none', cursor: 'pointer', background: !domestic ? 'var(--overseas)' : 'var(--ov-bg)', color: !domestic ? '#fff' : 'var(--overseas)' }}>海外</button>
+                <button onClick={() => setDomestic(true)}  style={{ padding: '3px 10px', border: 'none', cursor: 'pointer', background:  domestic ? 'var(--yamato)' : 'var(--yam-bg)', color:  domestic ? '#fff' : 'var(--yamato)' }}>国内</button>
+              </span>
+            )}
           </div>
-          <textarea value={orderNote} onChange={e => setOrderNote(e.target.value)} rows={8}
-            placeholder={'例:\nAbyss Eye  12,800×3\nNinja Spinner  11,400×120'}
-            style={{ width: '100%', background: 'var(--surface)', border: '1.5px solid var(--ov-bd)', borderRadius: 'var(--radius-sm)', padding: '8px 10px', fontSize: 12, lineHeight: 1.85, resize: 'none', outline: 'none', color: 'var(--text)', fontFamily: 'inherit' }}
-          />
+          {noteOpen && (
+            <textarea value={orderNote} onChange={e => setOrderNote(e.target.value)} rows={8}
+              placeholder={'例:\nAbyss Eye  12,800×3\nNinja Spinner  11,400×120'}
+              style={{ width: '100%', background: 'var(--surface)', border: '1.5px solid var(--ov-bd)', borderRadius: 'var(--radius-sm)', padding: '8px 10px', fontSize: 12, lineHeight: 1.85, resize: 'none', outline: 'none', color: 'var(--text)', fontFamily: 'inherit' }}
+            />
+          )}
         </div>
+        {noteOpen && (
         <div style={{ flex: 1, overflowY: 'auto', fontSize: 12 }}>
           {orderLines.length === 0
             ? <div style={{ padding: '14px', fontSize: 11, color: 'var(--text3)', textAlign: 'center' }}>元オーダーを入力すると残数を表示</div>
@@ -252,6 +273,7 @@ export default function ShipmentInput({ supabase, date, setDate, shipments, relo
               })
           }
         </div>
+        )}
         <div style={{ borderTop: '1px solid var(--border)', padding: '10px 14px', background: '#FEFBEC' }}>
           <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--warn)', marginBottom: 5 }}>⚠ 残り・持ち越し</div>
           <textarea value={carryOver} onChange={e => setCarryOver(e.target.value)} rows={2}
@@ -261,7 +283,7 @@ export default function ShipmentInput({ supabase, date, setDate, shipments, relo
         </div>
       </div>
 
-      <div style={{ overflowY: 'auto', padding: '16px 18px' }}>
+      <div className="shipment-main" style={{ overflowY: 'auto', padding: '16px 18px' }}>
         <div style={{ display: 'flex', alignItems: 'flex-end', gap: 14, marginBottom: 14, flexWrap: 'wrap' }}>
           <div className="fg" style={{ maxWidth: 170 }}>
             <label>日付</label>
