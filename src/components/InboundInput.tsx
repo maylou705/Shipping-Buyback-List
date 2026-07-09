@@ -79,6 +79,12 @@ export default function InboundInput({ supabase, date, setDate, inbounds, reload
   const [track,   setTrack]   = useState('')
   const [rem,     setRem]     = useState('')
   const [items,   setItems]   = useState<ItemRow[]>([{ prod: '', qty: '', price: '' }])
+  const [noteOpen, setNoteOpen] = useState(true)
+
+  // スマホ幅では「本日の入荷」パネルを初期状態で閉じておく
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.innerWidth < 760) setNoteOpen(false)
+  }, [])
 
   const di = inbounds.filter(b => b.date === date)
   const tIn = di.reduce((a, b) => a + (b.amount || 0), 0)
@@ -110,15 +116,19 @@ export default function InboundInput({ supabase, date, setDate, inbounds, reload
   }
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '260px 1fr', height: 'calc(100vh - 52px)', overflow: 'hidden' }}>
+    <div className="inbound-grid" style={{ display: 'grid', gridTemplateColumns: '260px 1fr', height: 'calc(100vh - 52px)', overflow: 'hidden' }}>
 
       {/* 左パネル */}
-      <div style={{ background: 'var(--surface)', borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', background: 'var(--inb-bg)' }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--inbound)', marginBottom: 4 }}>📥 本日の入荷</div>
+      <div className="inbound-side" style={{ background: 'var(--surface)', borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <div onClick={() => setNoteOpen(v => !v)} style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', background: 'var(--inb-bg)', cursor: 'pointer', userSelect: 'none' }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--inbound)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 9 }}>{noteOpen ? '▾' : '▸'}</span>
+            📥 本日の入荷
+          </div>
           <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--inbound)' }}>¥{fmt(tIn)}</div>
           <div style={{ fontSize: 11, color: 'var(--text2)', marginTop: 2 }}>{di.length}件</div>
         </div>
+        {noteOpen && (
         <div style={{ flex: 1, overflowY: 'auto' }}>
           {!di.length ? (
             <div style={{ padding: '20px 16px', fontSize: 11, color: 'var(--text3)', textAlign: 'center' }}>まだデータがありません</div>
@@ -147,7 +157,8 @@ export default function InboundInput({ supabase, date, setDate, inbounds, reload
             )
           })}
         </div>
-        {di.length > 0 && (
+        )}
+        {noteOpen && di.length > 0 && (
           <div style={{ padding: '10px 16px', borderTop: '1px solid var(--border)', background: 'var(--sf2)' }}>
             <div style={{ fontSize: 10, color: 'var(--text2)', marginBottom: 2 }}>到着済み</div>
             <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--success)' }}>
@@ -158,7 +169,7 @@ export default function InboundInput({ supabase, date, setDate, inbounds, reload
       </div>
 
       {/* 右エリア */}
-      <div style={{ overflowY: 'auto', padding: '18px 20px' }}>
+      <div className="inbound-main" style={{ overflowY: 'auto', padding: '18px 20px' }}>
         <div style={{ marginBottom: 14, display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap' }}>
           <div>
             <div style={{ fontSize: 19, fontWeight: 800 }}>入荷入力</div>
