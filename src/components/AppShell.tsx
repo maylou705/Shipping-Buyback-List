@@ -4,7 +4,6 @@ import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase'
 import { Shipment, Inbound, todayStr } from '@/lib/types'
 import Header from './Header'
-import Sidebar from './Sidebar'
 import Dashboard from './Dashboard'
 import ShipmentInput from './ShipmentInput'
 import InboundInput from './InboundInput'
@@ -56,8 +55,7 @@ export default function AppShell() {
   return (
     <div style={{ display:'grid', gridTemplateRows:'52px 1fr', minHeight:'100vh' }}>
       <Header view={view} setView={setView} />
-      <div className="app-grid" style={{ display:'grid', gridTemplateColumns: (view === 'dashboard' || view === 'list') ? '1fr' : '190px 1fr', height:'calc(100vh - 52px)', overflow:'hidden' }}>
-        {(view !== 'dashboard' && view !== 'list') && <Sidebar date={date} setDate={setDate} shipments={shipments} inbounds={inbounds} />}
+      <div className="app-grid" style={{ display:'grid', gridTemplateColumns: '1fr', height:'calc(100vh - 52px)', overflow:'hidden' }}>
         <main className="app-main" style={{ overflowY:'auto', padding: view === 'shipment' || view === 'inbound' ? '0' : '20px 24px' }}>
           {view === 'dashboard' && <Dashboard {...props} />}
           {view === 'shipment'  && <ShipmentInput {...props} setDate={setDate} />}
