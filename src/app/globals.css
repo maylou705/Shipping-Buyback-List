@@ -109,4 +109,8 @@ tr:hover td { background: #f8f9fb; }
   th, td { padding: 4px 5px !important; }
 
   .card-head { padding: 8px 10px; flex-wrap: wrap; gap: 6px; }
+
+  .shipment-grid { grid-template-columns: 1fr !important; grid-auto-rows: min-content 1fr; height: auto !important; overflow: visible !important; }
+  .shipment-side { border-right: none !important; border-bottom: 1px solid var(--border); }
+  .shipment-main { padding: 12px !important; }
 }
