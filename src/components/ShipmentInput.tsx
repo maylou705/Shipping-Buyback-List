@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { Shipment, Carrier, CARRIERS, CARRIER_COLOR, CARRIER_BG, FEDEX_OPS, fmt, uid } from '@/lib/types'
 import { SupabaseClient } from '@supabase/supabase-js'
 import { createQuoteClient } from '@/lib/supabase'
@@ -29,6 +30,8 @@ interface DraftRow {
   inventory_note: string
 }
 
+interface SuggestPos { top: number; left: number; width: number }
+
 function inputStyle(extra?: React.CSSProperties): React.CSSProperties {
   return { width: '100%', fontSize: 12, padding: '3px 5px', background: '#fff', border: '1px solid #D8C270', borderRadius: 3, outline: 'none', color: '#333', ...extra }
 }
@@ -40,6 +43,7 @@ export default function ShipmentInput({ supabase, date, setDate, shipments, relo
   const [products, setProducts] = useState<{ code: string; name: string; recore_pd_code?: string | null; grade?: string; unit_type?: string }[]>([])
   const [prodSearch, setProdSearch] = useState('')
   const [activeDraftId, setActiveDraftId] = useState<string | null>(null)
+  const [suggestPos, setSuggestPos] = useState<SuggestPos | null>(null)
   const [inventoryByPd, setInventoryByPd] = useState<Record<string, number>>({})
 
   useEffect(() => {
@@ -85,6 +89,7 @@ export default function ShipmentInput({ supabase, date, setDate, shipments, relo
   const TH: React.CSSProperties = { ...CELL, background: col, fontWeight: 700, textAlign: 'left', whiteSpace: 'nowrap', color: '#fff' }
   const TABLE_BG = CARRIER_BG[carrier]
   const PACK_CELL_BG = col + '26'
+  const DRAFT_BG = `color-mix(in srgb, ${col} 13%, white)`
 
   const dayShips = shipments.filter(s => s.date === date && s.carrier === carrier)
   const packs: Pack[] = buildPackGroups(dayShips)
@@ -302,48 +307,28 @@ export default function ShipmentInput({ supabase, date, setDate, shipments, relo
               const existingPack = packs.find(p => p.packNo === d.pack_no)
               const meta = existingPack ? existingPack.rows[0] : null
               return (
-                <tr key={d._id} style={{ background: '#FFF9E0' }}>
-                  <td style={{ ...CELL, position: 'sticky', left: 0, zIndex: 1, background: '#FFF9E0' }}>
+                <tr key={d._id} style={{ background: DRAFT_BG }}>
+                  <td style={{ ...CELL, position: 'sticky', left: 0, zIndex: 1, background: DRAFT_BG }}>
                     <input type="number" value={d.pack_no} onChange={e => updateDraft(d._id, { pack_no: +e.target.value || 1 })} style={inputStyle({ textAlign: 'center' })} />
                   </td>
-                  <td style={{ ...CELL, position: 'relative' }}>
+                  <td style={CELL}>
                     <input
                       value={d.product_name}
-                      onChange={e => { updateDraft(d._id, { product_name: e.target.value }); setProdSearch(e.target.value); setActiveDraftId(d._id) }}
-                      onFocus={e => { setProdSearch(e.target.value); setActiveDraftId(d._id) }}
+                      onChange={e => {
+                        updateDraft(d._id, { product_name: e.target.value }); setProdSearch(e.target.value); setActiveDraftId(d._id)
+                        const r = e.target.getBoundingClientRect()
+                        setSuggestPos({ top: r.bottom + window.scrollY, left: r.left + window.scrollX, width: Math.max(r.width, 480) })
+                      }}
+                      onFocus={e => {
+                        setProdSearch(e.target.value); setActiveDraftId(d._id)
+                        const r = e.target.getBoundingClientRect()
+                        setSuggestPos({ top: r.bottom + window.scrollY, left: r.left + window.scrollX, width: Math.max(r.width, 480) })
+                      }}
+                      onBlur={() => setTimeout(() => setActiveDraftId(prev => (prev === d._id ? null : prev)), 150)}
                       onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); confirmDraft(d) } }}
                       placeholder="商品名またはコードで検索…"
                       style={inputStyle()}
                     />
-                    {activeDraftId === d._id && filtered.length > 0 && d.product_name === prodSearch && (
-                      <div style={{ position: 'absolute', top: '100%', left: 0, minWidth: 480, background: 'var(--surface)', border: '1.5px solid var(--overseas)', borderRadius: 'var(--radius-sm)', zIndex: 1000, boxShadow: '0 4px 12px rgba(0,0,0,.1)', maxHeight: 320, overflowY: 'auto' }}>
-                        {filtered.map(p => (
-                          <div key={p.code}
-                            onMouseDown={e => { e.preventDefault(); updateDraft(d._id, { product_name: p.name }); setProdSearch('') }}
-                            style={{ padding: '7px 12px', cursor: 'pointer', fontSize: 12, borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 8 }}
-                            onMouseEnter={e => (e.currentTarget.style.background = 'var(--ov-bg)')}
-                            onMouseLeave={e => (e.currentTarget.style.background = 'none')}
-                          >
-                            <span style={{ fontWeight: 600, color: 'var(--text)', flex: 1 }}>{p.name}</span>
-                            <span style={{ fontSize: 10, color: 'var(--text3)', whiteSpace: 'nowrap', background: 'var(--sf2)', padding: '1px 6px', borderRadius: 4 }}>
-                              {p.unit_type}{p.grade && p.grade !== '無印' ? ` / ${p.grade}` : ''}
-                            </span>
-                            {(() => {
-                              const inv = getInventory(p.code, p.grade)
-                              return inv !== undefined ? (
-                                <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 8, whiteSpace: 'nowrap', background: inv > 0 ? 'var(--ov-bg)' : '#FEF2F2', color: inv > 0 ? 'var(--overseas)' : 'var(--danger)', border: `1px solid ${inv > 0 ? 'var(--ov-bd)' : '#FACACA'}` }}>在庫 {inv}</span>
-                              ) : null
-                            })()}
-                            {getInbound(p.name) !== undefined && (
-                              <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 8, whiteSpace: 'nowrap', background: 'var(--inb-bg)', color: 'var(--inbound)', border: '1px solid var(--inb-bd)' }}>入荷 {getInbound(p.name)}</span>
-                            )}
-                            {getShipped(p.name) !== undefined && (
-                              <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 8, whiteSpace: 'nowrap', background: 'var(--yam-bg)', color: 'var(--yamato)', border: '1px solid var(--yam-bd)' }}>出荷済 {getShipped(p.name)}</span>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    )}
                   </td>
                   <td style={CELL}><input type="number" value={d.qty} onChange={e => updateDraft(d._id, { qty: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); confirmDraft(d) } }} style={inputStyle({ textAlign: 'right' })} /></td>
                   <td style={CELL}><input type="number" value={d.unit_price} onChange={e => updateDraft(d._id, { unit_price: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); confirmDraft(d) } }} style={inputStyle({ textAlign: 'right' })} /></td>
@@ -392,6 +377,45 @@ export default function ShipmentInput({ supabase, date, setDate, shipments, relo
       <button onClick={addDraftRow} style={{ marginTop: 10, padding: '6px 14px', borderRadius: 'var(--radius-sm)', border: '1.5px dashed var(--border)', background: 'var(--surface)', color: 'var(--text2)', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
         + 行を追加
       </button>
+
+      {typeof window !== 'undefined' && activeDraftId && suggestPos && filtered.length > 0 && (() => {
+        const d = drafts.find(x => x._id === activeDraftId)
+        if (!d || d.product_name !== prodSearch) return null
+        return createPortal(
+          <div style={{
+            position: 'absolute', top: suggestPos.top, left: suggestPos.left, width: suggestPos.width,
+            background: 'var(--surface)', border: '1.5px solid var(--overseas)', borderRadius: 'var(--radius-sm)',
+            zIndex: 5000, boxShadow: '0 6px 20px rgba(0,0,0,.18)', maxHeight: 320, overflowY: 'auto',
+          }}>
+            {filtered.map(p => (
+              <div key={p.code}
+                onMouseDown={e => { e.preventDefault(); updateDraft(d._id, { product_name: p.name }); setProdSearch(''); setActiveDraftId(null) }}
+                style={{ padding: '7px 12px', cursor: 'pointer', fontSize: 12, borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 8 }}
+                onMouseEnter={e => (e.currentTarget.style.background = 'var(--ov-bg)')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+              >
+                <span style={{ fontWeight: 600, color: 'var(--text)', flex: 1 }}>{p.name}</span>
+                <span style={{ fontSize: 10, color: 'var(--text3)', whiteSpace: 'nowrap', background: 'var(--sf2)', padding: '1px 6px', borderRadius: 4 }}>
+                  {p.unit_type}{p.grade && p.grade !== '無印' ? ` / ${p.grade}` : ''}
+                </span>
+                {(() => {
+                  const inv = getInventory(p.code, p.grade)
+                  return inv !== undefined ? (
+                    <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 8, whiteSpace: 'nowrap', background: inv > 0 ? 'var(--ov-bg)' : '#FEF2F2', color: inv > 0 ? 'var(--overseas)' : 'var(--danger)', border: `1px solid ${inv > 0 ? 'var(--ov-bd)' : '#FACACA'}` }}>在庫 {inv}</span>
+                  ) : null
+                })()}
+                {getInbound(p.name) !== undefined && (
+                  <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 8, whiteSpace: 'nowrap', background: 'var(--inb-bg)', color: 'var(--inbound)', border: '1px solid var(--inb-bd)' }}>入荷 {getInbound(p.name)}</span>
+                )}
+                {getShipped(p.name) !== undefined && (
+                  <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 8, whiteSpace: 'nowrap', background: 'var(--yam-bg)', color: 'var(--yamato)', border: '1px solid var(--yam-bd)' }}>出荷済 {getShipped(p.name)}</span>
+                )}
+              </div>
+            ))}
+          </div>,
+          document.body
+        )
+      })()}
     </div>
   )
 }
