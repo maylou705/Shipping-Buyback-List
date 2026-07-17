@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { Shipment, Carrier, CARRIERS, CARRIER_COLOR, CARRIER_BG, FEDEX_OPS, fmt } from '@/lib/types'
+import { Shipment, Carrier, CARRIERS, CARRIER_COLOR, CARRIER_BG, FEDEX_OPS, fmt, uid } from '@/lib/types'
 import { SupabaseClient } from '@supabase/supabase-js'
 import { createQuoteClient } from '@/lib/supabase'
 import { buildPackGroups, Pack } from './PackGroupTable'
@@ -14,7 +14,8 @@ interface Props {
   inbounds?: { product_name: string; qty: number }[]
 }
 
-interface EntryRow {
+interface DraftRow {
+  _id: string
   pack_no: number
   product_name: string
   qty: string
@@ -38,13 +39,13 @@ function readonlyStyle(extra?: React.CSSProperties): React.CSSProperties {
 export default function ShipmentInput({ supabase, date, setDate, shipments, reload, inbounds = [] }: Props) {
   const [products, setProducts] = useState<{ code: string; name: string; recore_pd_code?: string | null; grade?: string; unit_type?: string }[]>([])
   const [prodSearch, setProdSearch] = useState('')
-  const [showSuggest, setShowSuggest] = useState(false)
+  const [activeDraftId, setActiveDraftId] = useState<string | null>(null)
   const [inventoryByPd, setInventoryByPd] = useState<Record<string, number>>({})
 
   useEffect(() => {
     const quote = createQuoteClient()
     quote.from('product_units').select('id, product_id, unit_type, short_code, grade, recore_pd_code').then(({ data: units, error }) => {
-      if (error) { console.error('product_units load error', error); return }
+      if (error) console.error('product_units load error', error)
       if (units) {
         setProducts(units.filter((u: any) => u.short_code).map((u: any) => ({
           code: u.short_code, name: u.short_code, recore_pd_code: u.recore_pd_code, grade: u.grade, unit_type: u.unit_type,
@@ -71,7 +72,7 @@ export default function ShipmentInput({ supabase, date, setDate, shipments, relo
     return inventoryByPd[key]
   }
 
-  const filtered = showSuggest && prodSearch.length >= 1
+  const filtered = prodSearch.length >= 1
     ? products.filter(p => p.code.toLowerCase().includes(prodSearch.toLowerCase()) || p.name.toLowerCase().includes(prodSearch.toLowerCase())).slice(0, 8)
     : []
 
@@ -103,7 +104,8 @@ export default function ShipmentInput({ supabase, date, setDate, shipments, relo
 
   const nextPackNo = dayShips.length ? Math.max(...dayShips.map(s => s.pack_no)) : 0
 
-  const blankEntry = (carryFrom?: EntryRow): EntryRow => ({
+  const blankDraft = (carryFrom?: DraftRow): DraftRow => ({
+    _id: uid(),
     pack_no: carryFrom ? carryFrom.pack_no : nextPackNo + 1,
     product_name: '', qty: '', unit_price: '', weight: '0.3',
     tracking_no: carryFrom?.tracking_no || '',
@@ -114,50 +116,57 @@ export default function ShipmentInput({ supabase, date, setDate, shipments, relo
     inventory_note: '',
   })
 
-  const [entry, setEntry] = useState<EntryRow>(() => blankEntry())
-  const [saving, setSaving] = useState(false)
+  const [drafts, setDrafts] = useState<DraftRow[]>(() => [blankDraft()])
+  const [savingId, setSavingId] = useState<string | null>(null)
 
-  // キャリア・日付が変わったら入力欄をリセット（別キャリアのデータが混ざるのを防ぐ）
+  // キャリア・日付が変わったら入力中の行をリセット（別キャリアのデータが混ざるのを防ぐ）
   useEffect(() => {
-    setEntry(blankEntry())
+    setDrafts([blankDraft()])
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [carrier, date])
 
-  const patchEntry = (patch: Partial<EntryRow>) => setEntry(prev => ({ ...prev, ...patch }))
-
-  const existingPack = packs.find(p => p.packNo === entry.pack_no)
-  const meta = existingPack ? existingPack.rows[0] : null
-
-  const confirmEntry = async () => {
-    if (!entry.product_name.trim()) { alert('商品名を入力してください'); return }
-    if (saving) return
-    setSaving(true)
-    const qty = +entry.qty || 0
-    const unit_price = +entry.unit_price || 0
-    const weight = +entry.weight || 0
-    await supabase.from('shipments').insert({
-      date, carrier, pack_no: entry.pack_no || nextPackNo + 1, domestic: false,
-      product_name: entry.product_name.trim(), qty, unit_price, amount: qty * unit_price,
-      weight, total_weight: qty * weight,
-      tracking_no: meta ? meta.tracking_no : entry.tracking_no,
-      recipient: meta ? meta.recipient : entry.recipient,
-      agent: meta ? meta.agent : entry.agent,
-      freight: meta ? meta.freight : (+entry.freight || 0),
-      send_op: meta ? meta.send_op : entry.op,
-      remarks: '', invoice_no: '', inventory_note: entry.inventory_note, order_note: '', carry_over: '',
-      chk_liqoa: false, chk_pack: false,
-    })
-    setEntry(blankEntry(entry))
-    setSaving(false)
-    setShowSuggest(false)
-    reload()
+  const updateDraft = (id: string, patch: Partial<DraftRow>) => {
+    setDrafts(prev => prev.map(d => d._id === id ? { ...d, ...patch } : d))
   }
 
-  const handleEntryKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !showSuggest) {
-      e.preventDefault()
-      confirmEntry()
-    }
+  const addDraftRow = () => {
+    setDrafts(prev => [...prev, blankDraft(prev[prev.length - 1])])
+  }
+
+  const removeDraftRow = (id: string) => {
+    setDrafts(prev => {
+      const rest = prev.filter(x => x._id !== id)
+      return rest.length ? rest : [blankDraft()]
+    })
+  }
+
+  const confirmDraft = async (d: DraftRow) => {
+    if (!d.product_name.trim()) { alert('商品名を入力してください'); return }
+    if (savingId) return
+    setSavingId(d._id)
+    const qty = +d.qty || 0
+    const unit_price = +d.unit_price || 0
+    const weight = +d.weight || 0
+    const existingPack = packs.find(p => p.packNo === d.pack_no)
+    const meta = existingPack ? existingPack.rows[0] : null
+    await supabase.from('shipments').insert({
+      date, carrier, pack_no: d.pack_no || nextPackNo + 1, domestic: false,
+      product_name: d.product_name.trim(), qty, unit_price, amount: qty * unit_price,
+      weight, total_weight: qty * weight,
+      tracking_no: meta ? meta.tracking_no : d.tracking_no,
+      recipient: meta ? meta.recipient : d.recipient,
+      agent: meta ? meta.agent : d.agent,
+      freight: meta ? meta.freight : (+d.freight || 0),
+      send_op: meta ? meta.send_op : d.op,
+      remarks: '', invoice_no: '', inventory_note: d.inventory_note, order_note: '', carry_over: '',
+      chk_liqoa: false, chk_pack: false,
+    })
+    setDrafts(prev => {
+      const rest = prev.filter(x => x._id !== d._id)
+      return rest.length ? rest : [blankDraft(d)]
+    })
+    setSavingId(null)
+    reload()
   }
 
   const updateRow = async (id: string, patch: Record<string, any>) => {
@@ -204,9 +213,8 @@ export default function ShipmentInput({ supabase, date, setDate, shipments, relo
         </div>
       </div>
 
-      {/* 確定済み一覧 */}
       <div style={{ fontSize: 11, color: 'var(--text2)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
-        <span>◀</span> 表は横にスクロールできます（すべての項目は右側まで続いています） <span>▶</span>
+        <span>◀</span> 表は横にスクロールできます。黄色の行に入力し「✓」で確定してください <span>▶</span>
       </div>
       <div style={{ overflowX: 'auto', border: `1px solid ${col}55`, borderRadius: 'var(--radius-sm)' }}>
         <table style={{ borderCollapse: 'collapse', width: '100%', background: TABLE_BG }}>
@@ -224,17 +232,11 @@ export default function ShipmentInput({ supabase, date, setDate, shipments, relo
               <th style={{ ...TH, textAlign: 'right' }}>送料</th>
               {isFedex && <th style={TH}>発送OP</th>}
               <th style={TH}>在庫内訳</th>
-              <th style={{ ...TH, width: 1 }}></th>
+              <th style={{ ...TH, width: 40 }}></th>
             </tr>
           </thead>
           <tbody>
-            {!packs.length && (
-              <tr>
-                <td colSpan={isFedex ? 13 : 12} style={{ ...CELL, textAlign: 'center', color: 'var(--text3)', padding: '14px' }}>
-                  まだ確定した商品はありません。下の入力欄から追加してください。
-                </td>
-              </tr>
-            )}
+            {/* 確定済み（既に保存された商品） */}
             {packs.map(pack => {
               const first = pack.rows[0]
               return pack.rows.map((r, ri) => (
@@ -294,103 +296,102 @@ export default function ShipmentInput({ supabase, date, setDate, shipments, relo
                 </tr>
               ))
             })}
+
+            {/* 入力中（未確定）の行 */}
+            {drafts.map(d => {
+              const existingPack = packs.find(p => p.packNo === d.pack_no)
+              const meta = existingPack ? existingPack.rows[0] : null
+              return (
+                <tr key={d._id} style={{ background: '#FFF9E0' }}>
+                  <td style={{ ...CELL, position: 'sticky', left: 0, zIndex: 1, background: '#FFF9E0' }}>
+                    <input type="number" value={d.pack_no} onChange={e => updateDraft(d._id, { pack_no: +e.target.value || 1 })} style={inputStyle({ textAlign: 'center' })} />
+                  </td>
+                  <td style={{ ...CELL, position: 'relative' }}>
+                    <input
+                      value={d.product_name}
+                      onChange={e => { updateDraft(d._id, { product_name: e.target.value }); setProdSearch(e.target.value); setActiveDraftId(d._id) }}
+                      onFocus={e => { setProdSearch(e.target.value); setActiveDraftId(d._id) }}
+                      onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); confirmDraft(d) } }}
+                      placeholder="商品名またはコードで検索…"
+                      style={inputStyle()}
+                    />
+                    {activeDraftId === d._id && filtered.length > 0 && d.product_name === prodSearch && (
+                      <div style={{ position: 'absolute', top: '100%', left: 0, minWidth: 480, background: 'var(--surface)', border: '1.5px solid var(--overseas)', borderRadius: 'var(--radius-sm)', zIndex: 1000, boxShadow: '0 4px 12px rgba(0,0,0,.1)', maxHeight: 320, overflowY: 'auto' }}>
+                        {filtered.map(p => (
+                          <div key={p.code}
+                            onMouseDown={e => { e.preventDefault(); updateDraft(d._id, { product_name: p.name }); setProdSearch('') }}
+                            style={{ padding: '7px 12px', cursor: 'pointer', fontSize: 12, borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 8 }}
+                            onMouseEnter={e => (e.currentTarget.style.background = 'var(--ov-bg)')}
+                            onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+                          >
+                            <span style={{ fontWeight: 600, color: 'var(--text)', flex: 1 }}>{p.name}</span>
+                            <span style={{ fontSize: 10, color: 'var(--text3)', whiteSpace: 'nowrap', background: 'var(--sf2)', padding: '1px 6px', borderRadius: 4 }}>
+                              {p.unit_type}{p.grade && p.grade !== '無印' ? ` / ${p.grade}` : ''}
+                            </span>
+                            {(() => {
+                              const inv = getInventory(p.code, p.grade)
+                              return inv !== undefined ? (
+                                <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 8, whiteSpace: 'nowrap', background: inv > 0 ? 'var(--ov-bg)' : '#FEF2F2', color: inv > 0 ? 'var(--overseas)' : 'var(--danger)', border: `1px solid ${inv > 0 ? 'var(--ov-bd)' : '#FACACA'}` }}>在庫 {inv}</span>
+                              ) : null
+                            })()}
+                            {getInbound(p.name) !== undefined && (
+                              <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 8, whiteSpace: 'nowrap', background: 'var(--inb-bg)', color: 'var(--inbound)', border: '1px solid var(--inb-bd)' }}>入荷 {getInbound(p.name)}</span>
+                            )}
+                            {getShipped(p.name) !== undefined && (
+                              <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 8, whiteSpace: 'nowrap', background: 'var(--yam-bg)', color: 'var(--yamato)', border: '1px solid var(--yam-bd)' }}>出荷済 {getShipped(p.name)}</span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </td>
+                  <td style={CELL}><input type="number" value={d.qty} onChange={e => updateDraft(d._id, { qty: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); confirmDraft(d) } }} style={inputStyle({ textAlign: 'right' })} /></td>
+                  <td style={CELL}><input type="number" value={d.unit_price} onChange={e => updateDraft(d._id, { unit_price: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); confirmDraft(d) } }} style={inputStyle({ textAlign: 'right' })} /></td>
+                  <td style={{ ...CELL, textAlign: 'right', color: 'var(--text3)' }}>¥{fmt((+d.qty || 0) * (+d.unit_price || 0))}</td>
+                  <td style={CELL}><input type="number" step="0.01" value={d.weight} onChange={e => updateDraft(d._id, { weight: e.target.value })} style={inputStyle({ textAlign: 'right' })} /></td>
+                  {meta ? (
+                    <>
+                      <td style={CELL} title="梱包内の他の商品と共通です"><div style={readonlyStyle()}>{meta.tracking_no || '（未入力）'}</div></td>
+                      <td style={CELL} title="梱包内の他の商品と共通です"><div style={readonlyStyle()}>{meta.recipient || '（未入力）'}</div></td>
+                      <td style={CELL} title="梱包内の他の商品と共通です"><div style={readonlyStyle()}>{meta.agent || '（未入力）'}</div></td>
+                      <td style={CELL} title="梱包内の他の商品と共通です"><div style={readonlyStyle({ textAlign: 'right' })}>¥{fmt(meta.freight)}</div></td>
+                      {isFedex && <td style={CELL} title="梱包内の他の商品と共通です"><div style={readonlyStyle()}>{meta.send_op || '（未選択）'}</div></td>}
+                    </>
+                  ) : (
+                    <>
+                      <td style={CELL}><input value={d.tracking_no} onChange={e => updateDraft(d._id, { tracking_no: e.target.value })} style={inputStyle()} /></td>
+                      <td style={CELL}><input value={d.recipient} onChange={e => updateDraft(d._id, { recipient: e.target.value })} style={inputStyle()} /></td>
+                      <td style={CELL}><input value={d.agent} onChange={e => updateDraft(d._id, { agent: e.target.value })} style={inputStyle()} /></td>
+                      <td style={CELL}><input type="number" value={d.freight} onChange={e => updateDraft(d._id, { freight: e.target.value })} style={inputStyle({ textAlign: 'right' })} /></td>
+                      {isFedex && (
+                        <td style={CELL}>
+                          <select value={d.op} onChange={e => updateDraft(d._id, { op: e.target.value })} style={inputStyle()}>
+                            <option value="">選択</option>
+                            {FEDEX_OPS.map(o => <option key={o}>{o}</option>)}
+                          </select>
+                        </td>
+                      )}
+                    </>
+                  )}
+                  <td style={CELL}><input value={d.inventory_note} onChange={e => updateDraft(d._id, { inventory_note: e.target.value })} style={inputStyle()} /></td>
+                  <td style={{ ...CELL, textAlign: 'center', whiteSpace: 'nowrap' }}>
+                    <button onClick={() => confirmDraft(d)} disabled={savingId === d._id} title="この行を確定"
+                      style={{ fontSize: 12, padding: '3px 7px', border: 'none', borderRadius: 3, background: col, color: '#fff', cursor: 'pointer', fontWeight: 800, marginRight: 3 }}>✓</button>
+                    {drafts.length > 1 && (
+                      <button onClick={() => removeDraftRow(d._id)} title="この行を消す"
+                        style={{ fontSize: 10, padding: '3px 6px', border: '1px solid #D8C270', borderRadius: 3, background: '#fff', cursor: 'pointer', color: '#a33' }}>✕</button>
+                    )}
+                  </td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       </div>
 
-      {/* 入力欄（常に1行・確定ボタンで追加） */}
-      <div style={{ marginTop: 16, background: TABLE_BG, border: `2px solid ${col}`, borderRadius: 'var(--radius)', padding: '12px 14px' }}>
-        <div style={{ fontSize: 12, fontWeight: 800, color: col, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
-          ＋ 新しい商品を入力
-          {existingPack && <span style={{ fontSize: 10, fontWeight: 400, color: 'var(--text2)' }}>（梱包{entry.pack_no}に追加されます・問番/宛先/送料などは自動で引き継ぎます）</span>}
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '70px 2fr 80px 90px 90px', gap: 8, marginBottom: 8 }} onKeyDown={handleEntryKeyDown}>
-          <div className="fg"><label>梱包</label>
-            <input type="number" value={entry.pack_no} onChange={e => patchEntry({ pack_no: +e.target.value || 1 })} style={inputStyle({ textAlign: 'center' })} />
-          </div>
-          <div className="fg" style={{ position: 'relative' }}>
-            <label>商品名</label>
-            <input
-              value={entry.product_name}
-              onChange={e => { patchEntry({ product_name: e.target.value }); setProdSearch(e.target.value); setShowSuggest(true) }}
-              onFocus={e => { setProdSearch(e.target.value); setShowSuggest(true) }}
-              placeholder="商品名またはコードで検索…"
-              style={inputStyle()}
-            />
-            {showSuggest && filtered.length > 0 && (
-              <div style={{ position: 'absolute', top: '100%', left: 0, minWidth: 480, background: 'var(--surface)', border: '1.5px solid var(--overseas)', borderRadius: 'var(--radius-sm)', zIndex: 1000, boxShadow: '0 4px 12px rgba(0,0,0,.1)', maxHeight: 320, overflowY: 'auto' }}>
-                {filtered.map(p => (
-                  <div key={p.code}
-                    onMouseDown={e => { e.preventDefault(); patchEntry({ product_name: p.name }); setProdSearch(''); setShowSuggest(false) }}
-                    style={{ padding: '7px 12px', cursor: 'pointer', fontSize: 12, borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 8 }}
-                    onMouseEnter={e => (e.currentTarget.style.background = 'var(--ov-bg)')}
-                    onMouseLeave={e => (e.currentTarget.style.background = 'none')}
-                  >
-                    <span style={{ fontWeight: 600, color: 'var(--text)', flex: 1 }}>{p.name}</span>
-                    <span style={{ fontSize: 10, color: 'var(--text3)', whiteSpace: 'nowrap', background: 'var(--sf2)', padding: '1px 6px', borderRadius: 4 }}>
-                      {p.unit_type}{p.grade && p.grade !== '無印' ? ` / ${p.grade}` : ''}
-                    </span>
-                    {(() => {
-                      const inv = getInventory(p.code, p.grade)
-                      return inv !== undefined ? (
-                        <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 8, whiteSpace: 'nowrap', background: inv > 0 ? 'var(--ov-bg)' : '#FEF2F2', color: inv > 0 ? 'var(--overseas)' : 'var(--danger)', border: `1px solid ${inv > 0 ? 'var(--ov-bd)' : '#FACACA'}` }}>在庫 {inv}</span>
-                      ) : null
-                    })()}
-                    {getInbound(p.name) !== undefined && (
-                      <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 8, whiteSpace: 'nowrap', background: 'var(--inb-bg)', color: 'var(--inbound)', border: '1px solid var(--inb-bd)' }}>入荷 {getInbound(p.name)}</span>
-                    )}
-                    {getShipped(p.name) !== undefined && (
-                      <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 8, whiteSpace: 'nowrap', background: 'var(--yam-bg)', color: 'var(--yamato)', border: '1px solid var(--yam-bd)' }}>出荷済 {getShipped(p.name)}</span>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-          <div className="fg"><label>個数</label><input type="number" value={entry.qty} onChange={e => patchEntry({ qty: e.target.value })} placeholder="0" style={inputStyle()} /></div>
-          <div className="fg"><label>単価 (¥)</label><input type="number" value={entry.unit_price} onChange={e => patchEntry({ unit_price: e.target.value })} placeholder="0" style={inputStyle()} /></div>
-          <div className="fg"><label>重量 (kg)</label><input type="number" step="0.01" value={entry.weight} onChange={e => patchEntry({ weight: e.target.value })} style={inputStyle()} /></div>
-        </div>
-
-        {!meta && (
-          <div style={{ display: 'grid', gridTemplateColumns: `1fr 1fr 1fr 90px${isFedex ? ' 1.4fr' : ''}`, gap: 8, marginBottom: 8 }} onKeyDown={handleEntryKeyDown}>
-            <div className="fg"><label>問番</label><input value={entry.tracking_no} onChange={e => patchEntry({ tracking_no: e.target.value })} placeholder="追跡番号" style={inputStyle()} /></div>
-            <div className="fg"><label>宛先名</label><input value={entry.recipient} onChange={e => patchEntry({ recipient: e.target.value })} placeholder="会社名 / 個人名" style={inputStyle()} /></div>
-            <div className="fg"><label>代行者名</label><input value={entry.agent} onChange={e => patchEntry({ agent: e.target.value })} placeholder="代行者名" style={inputStyle()} /></div>
-            <div className="fg"><label>送料(¥)</label><input type="number" value={entry.freight} onChange={e => patchEntry({ freight: e.target.value })} placeholder="0" style={inputStyle()} /></div>
-            {isFedex && (
-              <div className="fg">
-                <label>発送OP</label>
-                <select value={entry.op} onChange={e => patchEntry({ op: e.target.value })} style={inputStyle()}>
-                  <option value="">選択</option>
-                  {FEDEX_OPS.map(o => <option key={o}>{o}</option>)}
-                </select>
-              </div>
-            )}
-          </div>
-        )}
-        {meta && (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, fontSize: 11, color: 'var(--text2)', background: '#F1F1EC', border: '1px dashed #C9C0A0', borderRadius: 4, padding: '6px 10px', marginBottom: 8 }}>
-            <span>問番: <strong>{meta.tracking_no || '未入力'}</strong></span>
-            <span>宛先: <strong>{meta.recipient || '未入力'}</strong></span>
-            <span>代行: <strong>{meta.agent || '未入力'}</strong></span>
-            <span>送料: <strong>¥{fmt(meta.freight)}</strong></span>
-            <span style={{ marginLeft: 'auto', color: 'var(--text3)' }}>※梱包{entry.pack_no}の既存商品と共通（変更は上の一覧のセルから）</span>
-          </div>
-        )}
-
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 8 }} onKeyDown={handleEntryKeyDown}>
-          <div className="fg"><label>在庫内訳</label><input value={entry.inventory_note} onChange={e => patchEntry({ inventory_note: e.target.value })} style={inputStyle()} /></div>
-          <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'flex-end' }}>
-            <button onClick={confirmEntry} disabled={saving} style={{
-              padding: '9px 26px', background: col, color: '#fff', border: 'none', borderRadius: 'var(--radius-sm)',
-              fontSize: 13, fontWeight: 800, cursor: saving ? 'default' : 'pointer', opacity: saving ? 0.6 : 1,
-            }}>
-              ✓ 確定して追加
-            </button>
-          </div>
-        </div>
-      </div>
+      <button onClick={addDraftRow} style={{ marginTop: 10, padding: '6px 14px', borderRadius: 'var(--radius-sm)', border: '1.5px dashed var(--border)', background: 'var(--surface)', color: 'var(--text2)', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+        + 行を追加
+      </button>
     </div>
   )
 }
