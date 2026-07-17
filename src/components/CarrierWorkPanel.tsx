@@ -124,7 +124,7 @@ export default function CarrierWorkPanel({
     const weight = +d.weight || 0
     const existingPack = packs.find(p => p.packNo === d.pack_no)
     const meta = existingPack ? existingPack.rows[0] : null
-    await supabase.from('shipments').insert({
+    const { error } = await supabase.from('shipments').insert({
       date, carrier, pack_no: d.pack_no || nextPackNo + 1, domestic: false,
       product_name: d.product_name.trim(), qty, unit_price, amount: qty * unit_price,
       weight, total_weight: qty * weight,
@@ -137,6 +137,12 @@ export default function CarrierWorkPanel({
       invoice_no: '', inventory_note: '', order_note: '', carry_over: '',
       chk_liqoa: false, chk_pack: false,
     })
+    if (error) {
+      console.error('shipment insert error', error)
+      alert('保存に失敗しました: ' + error.message)
+      setSavingId(null)
+      return
+    }
     setDrafts(prev => {
       const rest = prev.filter(x => x._id !== d._id)
       return rest.length ? rest : [blankDraft(d)]
@@ -146,21 +152,25 @@ export default function CarrierWorkPanel({
   }
 
   const updateRow = async (id: string, patch: Record<string, any>) => {
-    await supabase.from('shipments').update(patch).eq('id', id)
+    const { error } = await supabase.from('shipments').update(patch).eq('id', id)
+    if (error) { console.error('shipment update error', error); alert('更新に失敗しました: ' + error.message); return }
     reload()
   }
   const updatePackFields = async (packNo: number, packDate: string, patch: Record<string, any>) => {
-    await supabase.from('shipments').update(patch).eq('carrier', carrier).eq('pack_no', packNo).eq('date', packDate)
+    const { error } = await supabase.from('shipments').update(patch).eq('carrier', carrier).eq('pack_no', packNo).eq('date', packDate)
+    if (error) { console.error('shipment pack update error', error); alert('更新に失敗しました: ' + error.message); return }
     reload()
   }
   const delRow = async (id: string) => {
     if (!confirm('この行を削除しますか？')) return
-    await supabase.from('shipments').delete().eq('id', id)
+    const { error } = await supabase.from('shipments').delete().eq('id', id)
+    if (error) { console.error('shipment delete error', error); alert('削除に失敗しました: ' + error.message); return }
     reload()
   }
   const delPack = async (packNo: number, packDate: string) => {
     if (!confirm(`梱包${packNo}を削除しますか？`)) return
-    await supabase.from('shipments').delete().eq('carrier', carrier).eq('pack_no', packNo).eq('date', packDate)
+    const { error } = await supabase.from('shipments').delete().eq('carrier', carrier).eq('pack_no', packNo).eq('date', packDate)
+    if (error) { console.error('shipment pack delete error', error); alert('削除に失敗しました: ' + error.message); return }
     reload()
   }
 
