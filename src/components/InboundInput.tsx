@@ -1,6 +1,6 @@
 'use client'
-import { useState, useEffect } from 'react'
-import { Inbound, InbSection, INB_SECTION_LABEL, fmt, fmtDate, weekday, uid } from '@/lib/types'
+import { useState, useEffect, useRef } from 'react'
+import { Inbound, InbSection, INB_SECTION_LABEL, fmt, uid } from '@/lib/types'
 import { SupabaseClient } from '@supabase/supabase-js'
 import { createQuoteClient } from '@/lib/supabase'
 
@@ -14,175 +14,132 @@ interface Props {
 
 const SEC_COLOR: Record<InbSection, string> = { corporate: 'var(--yamato)', purchase: 'var(--inbound)', postal: 'var(--overseas)' }
 const SEC_BG:    Record<InbSection, string> = { corporate: 'var(--yam-bg)', purchase: 'var(--inb-bg)',  postal: 'var(--ov-bg)' }
-const SEC_BD:    Record<InbSection, string> = { corporate: 'var(--yam-bd)', purchase: 'var(--inb-bd)',  postal: 'var(--ov-bd)' }
 
-interface ItemRow { prod: string; qty: string; price: string }
+interface DraftRow {
+  _id: string
+  company: string
+  product_name: string
+  qty: string
+  unit_price: string
+  tracking_no: string
+  payment_date: string
+  remarks: string
+}
+
+function inputStyle(extra?: React.CSSProperties): React.CSSProperties {
+  return { width: '100%', fontSize: 12, padding: '3px 5px', background: '#fff', border: '1px solid #D8C270', borderRadius: 3, outline: 'none', color: '#333', ...extra }
+}
 
 export default function InboundInput({ supabase, date, setDate, inbounds, reload }: Props) {
-  const [products, setProducts] = useState<{code: string; name: string; recore_pd_code?: string | null; grade?: string; unit_type?: string}[]>([])
+  const [products, setProducts] = useState<{ code: string; name: string; recore_pd_code?: string | null; grade?: string; unit_type?: string }[]>([])
   const [prodSearch, setProdSearch] = useState('')
+  const [activeDraftId, setActiveDraftId] = useState<string | null>(null)
   const [inventoryByPd, setInventoryByPd] = useState<Record<string, number>>({})
 
   useEffect(() => {
     const quote = createQuoteClient()
     quote.from('product_units').select('id, product_id, unit_type, short_code, grade, recore_pd_code').then(({ data: units }) => {
       if (units) {
-        const items = units
-          .filter((u: any) => u.short_code)
-          .map((u: any) => ({
-            code: u.short_code,
-            name: u.short_code,
-            recore_pd_code: u.recore_pd_code,
-            grade: u.grade,
-            unit_type: u.unit_type,
-          }))
-        setProducts(items)
+        setProducts(units.filter((u: any) => u.short_code).map((u: any) => ({
+          code: u.short_code, name: u.short_code, recore_pd_code: u.recore_pd_code, grade: u.grade, unit_type: u.unit_type,
+        })))
       }
     })
     supabase.from('inventory').select('product_code, grade, qty').then(({ data: inv }) => {
       if (inv) {
-        const pdMap: Record<string, number> = {}
-        inv.forEach((r: any) => {
-          const key = `${r.product_code}__${r.grade}`
-          pdMap[key] = (pdMap[key] || 0) + r.qty
-        })
-        setInventoryByPd(pdMap)
+        const m: Record<string, number> = {}
+        inv.forEach((r: any) => { const k = `${r.product_code}__${r.grade}`; m[k] = (m[k] || 0) + r.qty })
+        setInventoryByPd(m)
       }
     })
-  }, [])
+  }, [supabase])
 
-  const getInventory = (codeOrName: string): number | undefined => {
-    const unit = products.find(p => p.code === codeOrName) as any
+  const getInventory = (code: string): number | undefined => {
+    const unit = products.find(p => p.code === code) as any
     if (!unit?.recore_pd_code) return undefined
-    const gradeMap: Record<string, string> = {
-      '無印': 'シュリンク有',
-      'シュリンク無': 'シュリンク無',
-      '★シュリ': '★',
-      'ぺリなし': 'その他',
-    }
-    const recoreGrade = gradeMap[unit.grade] || unit.grade
-    const key = `${unit.recore_pd_code}__${recoreGrade}`
-    const qty = inventoryByPd[key]
-    return qty !== undefined ? qty : undefined
+    const gradeMap: Record<string, string> = { '無印': 'シュリンク有', 'シュリンク無': 'シュリンク無', '★シュリ': '★', 'ぺリなし': 'その他' }
+    const key = `${unit.recore_pd_code}__${gradeMap[unit.grade] || unit.grade}`
+    return inventoryByPd[key]
   }
 
   const filtered = prodSearch.length >= 1
-    ? products.filter(p =>
-        p.code.toLowerCase().includes(prodSearch.toLowerCase()) ||
-        p.name.toLowerCase().includes(prodSearch.toLowerCase())
-      ).slice(0, 8)
+    ? products.filter(p => p.code.toLowerCase().includes(prodSearch.toLowerCase()) || p.name.toLowerCase().includes(prodSearch.toLowerCase())).slice(0, 8)
     : []
 
   const [section, setSection] = useState<InbSection>('corporate')
-  const [company, setCompany] = useState('')
-  const [payDate, setPayDate] = useState('')
-  const [track,   setTrack]   = useState('')
-  const [rem,     setRem]     = useState('')
-  const [items,   setItems]   = useState<ItemRow[]>([{ prod: '', qty: '', price: '' }])
-  const [noteOpen, setNoteOpen] = useState(true)
-
-  // スマホ幅では「本日の入荷」パネルを初期状態で閉じておく
-  useEffect(() => {
-    if (typeof window !== 'undefined' && window.innerWidth < 760) setNoteOpen(false)
-  }, [])
+  const col = SEC_COLOR[section]
+  const CELL: React.CSSProperties = { border: `1px solid ${col}`, padding: '4px 6px', fontSize: 12 }
+  const TH: React.CSSProperties = { ...CELL, background: col, fontWeight: 700, textAlign: 'left', whiteSpace: 'nowrap', color: '#fff' }
+  const TABLE_BG = SEC_BG[section]
 
   const di = inbounds.filter(b => b.date === date)
+  const secRows = di.filter(x => x.inb_section === section)
   const tIn = di.reduce((a, b) => a + (b.amount || 0), 0)
-  const col = SEC_COLOR[section]
-  const bg  = SEC_BG[section]
-  const bd  = SEC_BD[section]
 
-  const addItem = () => setItems(p => [...p, { prod: '', qty: '', price: '' }])
-  const setItem = (i: number, k: keyof ItemRow, v: string) => setItems(p => p.map((r, j) => j === i ? { ...r, [k]: v } : r))
+  const blankDraft = (carryFrom?: DraftRow): DraftRow => ({
+    _id: uid(),
+    company: carryFrom?.company || '',
+    product_name: '', qty: '', unit_price: '',
+    tracking_no: carryFrom?.tracking_no || '',
+    payment_date: carryFrom?.payment_date || '',
+    remarks: carryFrom?.remarks || '',
+  })
 
-  const total = items.reduce((a, r) => a + (+r.qty || 0) * (+r.price || 0), 0)
+  const [drafts, setDrafts] = useState<DraftRow[]>(() => [blankDraft()])
 
-  const save = async () => {
-    if (section === 'postal' && !track) { alert('郵送買取は問番が必須です'); return }
-    const rows = items.filter(r => r.prod || +r.qty > 0)
-    if (!rows.length) { alert('商品を入力してください'); return }
-    await Promise.all(rows.map(r => supabase.from('inbounds').insert({
-      id: uid(), date, inb_section: section,
-      arrived: false, chk_liqoa: false,
-      company, product_name: r.prod,
-      qty: +r.qty || 0, unit_price: +r.price || 0,
-      amount: (+r.qty || 0) * (+r.price || 0),
-      tracking_no: track, payment_date: payDate || null,
-      remarks: rem, recore_no: '',
-    })))
+  // 区分・日付が変わったらドラフトをリセット
+  useEffect(() => {
+    setDrafts([blankDraft()])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [section, date])
+
+  const updateDraft = (id: string, patch: Partial<DraftRow>) => {
+    setDrafts(prev => prev.map(d => d._id === id ? { ...d, ...patch } : d))
+  }
+
+  const committingRef = useRef<Set<string>>(new Set())
+  const commitDraft = async (d: DraftRow) => {
+    if (!d.product_name.trim() || committingRef.current.has(d._id)) return
+    if (section === 'postal' && !d.tracking_no.trim()) {
+      alert('郵送買取は問番が必須です')
+      return
+    }
+    committingRef.current.add(d._id)
+    const qty = +d.qty || 0
+    const unit_price = +d.unit_price || 0
+    await supabase.from('inbounds').insert({
+      date, inb_section: section, arrived: false, chk_liqoa: false,
+      company: d.company, product_name: d.product_name.trim(),
+      qty, unit_price, amount: qty * unit_price,
+      tracking_no: d.tracking_no, payment_date: d.payment_date || null,
+      remarks: d.remarks, recore_no: '',
+    })
+    setDrafts(prev => {
+      const rest = prev.filter(x => x._id !== d._id)
+      return rest.length ? [...rest, blankDraft(d)] : [blankDraft(d)]
+    })
+    committingRef.current.delete(d._id)
     reload()
-    setItems([{ prod: '', qty: '', price: '' }])
-    setCompany(''); setPayDate(''); setTrack(''); setRem('')
+  }
+
+  const updateRow = async (id: string, patch: Record<string, any>) => {
+    await supabase.from('inbounds').update(patch).eq('id', id)
+    reload()
+  }
+  const delRow = async (id: string) => {
+    if (!confirm('この行を削除しますか？')) return
+    await supabase.from('inbounds').delete().eq('id', id)
+    reload()
   }
 
   return (
-    <div className="inbound-grid" style={{ display: 'grid', gridTemplateColumns: '260px 1fr', height: 'calc(100vh - 52px)', overflow: 'hidden' }}>
-
-      {/* 左パネル */}
-      <div className="inbound-side" style={{ background: 'var(--surface)', borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        <div onClick={() => setNoteOpen(v => !v)} style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', background: 'var(--inb-bg)', cursor: 'pointer', userSelect: 'none' }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--inbound)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontSize: 9 }}>{noteOpen ? '▾' : '▸'}</span>
-            📥 本日の入荷
-          </div>
-          <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--inbound)' }}>¥{fmt(tIn)}</div>
-          <div style={{ fontSize: 11, color: 'var(--text2)', marginTop: 2 }}>{di.length}件</div>
+    <div style={{ padding: '18px 20px' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 14, marginBottom: 14, flexWrap: 'wrap' }}>
+        <div className="fg" style={{ maxWidth: 170 }}>
+          <label>日付</label>
+          <input type="date" value={date} onChange={e => setDate?.(e.target.value)} />
         </div>
-        {noteOpen && (
-        <div style={{ flex: 1, overflowY: 'auto' }}>
-          {!di.length ? (
-            <div style={{ padding: '20px 16px', fontSize: 11, color: 'var(--text3)', textAlign: 'center' }}>まだデータがありません</div>
-          ) : (['corporate', 'purchase', 'postal'] as InbSection[]).map(sec => {
-            const secItems = di.filter(x => x.inb_section === sec)
-            if (!secItems.length) return null
-            return (
-              <div key={sec} style={{ borderBottom: '1px solid var(--border)' }}>
-                <div style={{ padding: '5px 14px', background: 'var(--sf2)', fontSize: 10, fontWeight: 700, color: 'var(--text2)' }}>
-                  {INB_SECTION_LABEL[sec]}
-                </div>
-                {secItems.map(x => (
-                  <div key={x.id} style={{ padding: '7px 14px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer', flex: 1, minWidth: 0 }}>
-                      <input type="checkbox" checked={x.arrived}
-                        onChange={async e => { await supabase.from('inbounds').update({ arrived: e.target.checked }).eq('id', x.id); reload() }}
-                        style={{ width: 16, height: 16, accentColor: 'var(--inbound)', flexShrink: 0 }} />
-                      <span style={{ fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {x.company || '-'}
-                      </span>
-                    </label>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--inbound)', whiteSpace: 'nowrap' }}>¥{fmt(x.amount)}</span>
-                  </div>
-                ))}
-              </div>
-            )
-          })}
-        </div>
-        )}
-        {noteOpen && di.length > 0 && (
-          <div style={{ padding: '10px 16px', borderTop: '1px solid var(--border)', background: 'var(--sf2)' }}>
-            <div style={{ fontSize: 10, color: 'var(--text2)', marginBottom: 2 }}>到着済み</div>
-            <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--success)' }}>
-              {di.filter(x => x.arrived).length}件 / ¥{fmt(di.filter(x => x.arrived).reduce((a, x) => a + (x.amount || 0), 0))}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* 右エリア */}
-      <div className="inbound-main" style={{ overflowY: 'auto', padding: '18px 20px' }}>
-        <div style={{ marginBottom: 14, display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap' }}>
-          <div>
-            <div style={{ fontSize: 19, fontWeight: 800 }}>入荷入力</div>
-            <div style={{ fontSize: 12, color: 'var(--text2)' }}>{fmtDate(date)}（{weekday(date)}）</div>
-          </div>
-          <div className="fg" style={{ maxWidth: 170 }}>
-            <label>日付</label>
-            <input type="date" value={date} onChange={e => setDate?.(e.target.value)} />
-          </div>
-        </div>
-
-        {/* タブ */}
-        <div style={{ display: 'flex', gap: 4, marginBottom: 14 }}>
+        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
           {(['corporate', 'purchase', 'postal'] as InbSection[]).map(sec => (
             <button key={sec} onClick={() => setSection(sec)} style={{
               padding: '7px 18px', borderRadius: 'var(--radius-sm)',
@@ -195,95 +152,103 @@ export default function InboundInput({ supabase, date, setDate, inbounds, reload
             </button>
           ))}
         </div>
-
-        {/* フォーム */}
-        <div style={{ background: 'var(--surface)', border: `1.5px solid ${bd}`, borderRadius: 'var(--radius)', overflow: 'visible' }}>
-          <div style={{ padding: '9px 16px', background: bg, borderBottom: `1px solid ${bd}`, fontSize: 12, fontWeight: 700, color: col }}>
-            {INB_SECTION_LABEL[section]} 入力
-          </div>
-          <div style={{ padding: '14px 16px' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(170px,1fr))', gap: 10, marginBottom: 12 }}>
-              <div className="fg">
-                <label>{section === 'corporate' ? '会社名' : '買取者名'}</label>
-                <input value={company} onChange={e => setCompany(e.target.value)} placeholder={section === 'corporate' ? '会社名' : '個人名または会社名'} />
-              </div>
-              <div className="fg"><label>支払日</label><input type="date" value={payDate} onChange={e => setPayDate(e.target.value)} /></div>
-              {section === 'postal' && (
-                <div className="fg">
-                  <label>問番 <span style={{ color: 'var(--danger)', fontSize: 10 }}>必須</span></label>
-                  <input value={track} onChange={e => setTrack(e.target.value)} placeholder="追跡番号" />
-                </div>
-              )}
-              <div className="fg" style={{ gridColumn: '1/-1' }}>
-                <label>備考</label>
-                <textarea value={rem} onChange={e => setRem(e.target.value)} style={{ minHeight: 44, resize: 'vertical' }} />
-              </div>
-            </div>
-
-            {/* 商品明細 */}
-            <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', overflow: 'visible', marginBottom: 12 }}>
-              <div style={{ background: 'var(--sf2)', padding: '6px 12px', fontSize: 10, fontWeight: 700, color: 'var(--text2)' }}>商品明細</div>
-              {items.map((item, i) => (
-                <div key={i} style={{ display: 'grid', gridTemplateColumns: '2fr 60px 90px 90px', gap: 6, padding: '8px 12px', borderBottom: '1px solid var(--border)', alignItems: 'end' }}>
-                  <div className="fg" style={{ position: 'relative' }}>
-                    <label>{i === 0 ? '商品名' : `商品名 ${i + 1}`}</label>
-                    <input
-                      value={item.prod}
-                      onChange={e => { setItem(i, 'prod', e.target.value); setProdSearch(e.target.value) }}
-                      onFocus={e => setProdSearch(e.target.value)}
-                      onBlur={() => setTimeout(() => setProdSearch(''), 200)}
-                      placeholder="商品名またはコードで検索..."
-                    />
-                    {filtered.length > 0 && item.prod === prodSearch && (
-                      <div style={{ position: 'absolute', top: '100%', left: 0, minWidth: 480, background: 'var(--surface)', border: '1.5px solid var(--inbound)', borderRadius: 'var(--radius-sm)', zIndex: 1000, boxShadow: '0 4px 12px rgba(0,0,0,.1)', maxHeight: 320, overflowY: 'auto' }}>
-                        {filtered.map(p => (
-                          <div key={p.code}
-                            onMouseDown={() => { setItem(i, 'prod', p.name); setProdSearch('') }}
-                            style={{ padding: '7px 12px', cursor: 'pointer', fontSize: 12, borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 10 }}
-                            onMouseEnter={e => (e.currentTarget.style.background = 'var(--inb-bg)')}
-                            onMouseLeave={e => (e.currentTarget.style.background = 'none')}
-                          >
-                            <span style={{ color: 'var(--text)', fontWeight: 600, flex: 1 }}>{p.name}</span>
-                            {getInventory(p.code) !== undefined && (
-                              <span style={{
-                                fontSize: 10, padding: '1px 6px', borderRadius: 8, whiteSpace: 'nowrap',
-                                background: getInventory(p.code)! > 0 ? 'var(--ov-bg)' : '#FEF2F2',
-                                color: getInventory(p.code)! > 0 ? 'var(--overseas)' : 'var(--danger)',
-                                border: `1px solid ${getInventory(p.code)! > 0 ? 'var(--ov-bd)' : '#FACACA'}`,
-                              }}>
-                                在庫 {getInventory(p.code)}
-                              </span>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  <div className="fg"><label>個数</label><input type="number" value={item.qty} onChange={e => setItem(i, 'qty', e.target.value)} placeholder="0" /></div>
-                  <div className="fg"><label>単価 (¥)</label><input type="number" value={item.price} onChange={e => setItem(i, 'price', e.target.value)} placeholder="0" /></div>
-                  <div className="fg">
-                    <label>小計 <span style={{ fontSize: 9, color: 'var(--text3)' }}>自動</span></label>
-                    <input readOnly value={(+item.qty || 0) * (+item.price || 0) || ''} style={{ background: 'var(--sf2)', color: col, fontWeight: 700, borderStyle: 'dashed' }} />
-                  </div>
-                </div>
-              ))}
-              <div style={{ padding: '8px 12px', background: 'var(--sf2)', borderTop: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <button onClick={addItem} style={{ fontSize: 11, padding: '4px 12px', border: '1.5px dashed var(--border2)', borderRadius: 'var(--radius-sm)', background: 'none', cursor: 'pointer', color: 'var(--text2)' }}>
-                  ＋ 商品行を追加
-                </button>
-                {total > 0 && <span style={{ fontSize: 12, fontWeight: 700, color: col }}>合計 ¥{fmt(total)}</span>}
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-              <button className="btn btn-outline" onClick={() => { setItems([{ prod: '', qty: '', price: '' }]); setCompany(''); setPayDate(''); setTrack(''); setRem('') }}>クリア</button>
-              <button onClick={save} style={{ padding: '8px 22px', background: col, color: '#fff', border: 'none', borderRadius: 'var(--radius-sm)', fontSize: 13, fontWeight: 800, cursor: 'pointer' }}>
-                保存する
-              </button>
-            </div>
-          </div>
+        <div style={{ marginLeft: 'auto', fontSize: 13, fontWeight: 800, color: 'var(--inbound)' }}>
+          本日合計 ¥{fmt(tIn)}（{di.length}件）
         </div>
       </div>
+
+      <div style={{ fontSize: 11, color: 'var(--text2)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
+        <span>◀</span> 表は横にスクロールできます（すべての項目は右側まで続いています） <span>▶</span>
+      </div>
+      <div style={{ overflowX: 'auto', border: `1px solid ${col}`, borderRadius: 'var(--radius-sm)' }}>
+        <table style={{ borderCollapse: 'collapse', width: '100%', background: TABLE_BG }}>
+          <thead>
+            <tr>
+              <th style={{ ...TH, minWidth: 120, position: 'sticky', left: 0, zIndex: 2 }}>{section === 'corporate' ? '会社名' : '買取者名'}</th>
+              <th style={{ ...TH, minWidth: 200 }}>商品名</th>
+              <th style={{ ...TH, textAlign: 'right' }}>個数</th>
+              <th style={{ ...TH, textAlign: 'right' }}>単価</th>
+              <th style={{ ...TH, textAlign: 'right' }}>金額</th>
+              <th style={TH}>問番{section === 'postal' && <span style={{ color: '#b33' }}> *</span>}</th>
+              <th style={TH}>支払日</th>
+              <th style={{ ...TH, minWidth: 140 }}>備考</th>
+              <th style={{ ...TH, width: 1 }}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {secRows.map(x => (
+              <tr key={x.id}>
+                <td style={{ ...CELL, position: 'sticky', left: 0, zIndex: 1, background: TABLE_BG }}><input defaultValue={x.company} onBlur={e => e.target.value !== x.company && updateRow(x.id, { company: e.target.value })} style={inputStyle()} /></td>
+                <td style={CELL}><input defaultValue={x.product_name} onBlur={e => e.target.value !== x.product_name && updateRow(x.id, { product_name: e.target.value })} style={inputStyle()} /></td>
+                <td style={CELL}>
+                  <input type="number" defaultValue={x.qty} onBlur={e => { const qty = +e.target.value || 0; if (qty !== x.qty) updateRow(x.id, { qty, amount: qty * (x.unit_price || 0) }) }} style={inputStyle({ textAlign: 'right' })} />
+                </td>
+                <td style={CELL}>
+                  <input type="number" defaultValue={x.unit_price} onBlur={e => { const up = +e.target.value || 0; if (up !== x.unit_price) updateRow(x.id, { unit_price: up, amount: (x.qty || 0) * up }) }} style={inputStyle({ textAlign: 'right' })} />
+                </td>
+                <td style={{ ...CELL, textAlign: 'right', fontWeight: 700, color: SEC_COLOR[x.inb_section] }}>¥{fmt(x.amount)}</td>
+                <td style={CELL}><input defaultValue={x.tracking_no} onBlur={e => e.target.value !== x.tracking_no && updateRow(x.id, { tracking_no: e.target.value })} style={inputStyle()} /></td>
+                <td style={CELL}><input type="date" defaultValue={x.payment_date} onChange={e => e.target.value !== x.payment_date && updateRow(x.id, { payment_date: e.target.value || null })} style={inputStyle()} /></td>
+                <td style={CELL}><input defaultValue={x.remarks} onBlur={e => e.target.value !== x.remarks && updateRow(x.id, { remarks: e.target.value })} style={inputStyle()} /></td>
+                <td style={{ ...CELL, textAlign: 'center' }}>
+                  <button onClick={() => delRow(x.id)} style={{ fontSize: 10, padding: '1px 5px', border: '1px solid #D8C270', borderRadius: 3, background: '#fff', cursor: 'pointer', color: '#a33' }}>✕</button>
+                </td>
+              </tr>
+            ))}
+
+            {drafts.map(d => (
+              <tr key={d._id} style={{ background: '#FFF9E0' }}
+                onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) commitDraft(d) }}>
+                <td style={{ ...CELL, position: 'sticky', left: 0, zIndex: 1, background: '#FFF9E0' }}><input value={d.company} onChange={e => updateDraft(d._id, { company: e.target.value })} style={inputStyle()} /></td>
+                <td style={{ ...CELL, position: 'relative' }}>
+                  <input
+                    value={d.product_name}
+                    onChange={e => { updateDraft(d._id, { product_name: e.target.value }); setProdSearch(e.target.value); setActiveDraftId(d._id) }}
+                    onFocus={e => { setProdSearch(e.target.value); setActiveDraftId(d._id) }}
+                    placeholder="商品名またはコードで検索…"
+                    style={inputStyle()}
+                  />
+                  {activeDraftId === d._id && filtered.length > 0 && d.product_name === prodSearch && (
+                    <div style={{ position: 'absolute', top: '100%', left: 0, minWidth: 420, background: 'var(--surface)', border: '1.5px solid var(--inbound)', borderRadius: 'var(--radius-sm)', zIndex: 1000, boxShadow: '0 4px 12px rgba(0,0,0,.1)', maxHeight: 320, overflowY: 'auto' }}>
+                      {filtered.map(p => (
+                        <div key={p.code}
+                          onMouseDown={e => { e.preventDefault(); updateDraft(d._id, { product_name: p.name }); setProdSearch('') }}
+                          style={{ padding: '7px 12px', cursor: 'pointer', fontSize: 12, borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 10 }}
+                          onMouseEnter={e => (e.currentTarget.style.background = 'var(--inb-bg)')}
+                          onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+                        >
+                          <span style={{ color: 'var(--text)', fontWeight: 600, flex: 1 }}>{p.name}</span>
+                          {getInventory(p.code) !== undefined && (
+                            <span style={{
+                              fontSize: 10, padding: '1px 6px', borderRadius: 8, whiteSpace: 'nowrap',
+                              background: getInventory(p.code)! > 0 ? 'var(--ov-bg)' : '#FEF2F2',
+                              color: getInventory(p.code)! > 0 ? 'var(--overseas)' : 'var(--danger)',
+                              border: `1px solid ${getInventory(p.code)! > 0 ? 'var(--ov-bd)' : '#FACACA'}`,
+                            }}>
+                              在庫 {getInventory(p.code)}
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </td>
+                <td style={CELL}><input type="number" value={d.qty} onChange={e => updateDraft(d._id, { qty: e.target.value })} style={inputStyle({ textAlign: 'right' })} /></td>
+                <td style={CELL}><input type="number" value={d.unit_price} onChange={e => updateDraft(d._id, { unit_price: e.target.value })} style={inputStyle({ textAlign: 'right' })} /></td>
+                <td style={{ ...CELL, textAlign: 'right', color: 'var(--text3)' }}>¥{fmt((+d.qty || 0) * (+d.unit_price || 0))}</td>
+                <td style={CELL}><input value={d.tracking_no} onChange={e => updateDraft(d._id, { tracking_no: e.target.value })} style={inputStyle()} /></td>
+                <td style={CELL}><input type="date" value={d.payment_date} onChange={e => updateDraft(d._id, { payment_date: e.target.value })} style={inputStyle()} /></td>
+                <td style={CELL}><input value={d.remarks} onChange={e => updateDraft(d._id, { remarks: e.target.value })} style={inputStyle()} /></td>
+                <td style={CELL}></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <button onClick={() => setDrafts(prev => [...prev, blankDraft(prev[prev.length - 1])])} style={{ marginTop: 10, padding: '6px 14px', borderRadius: 'var(--radius-sm)', border: '1.5px dashed var(--border)', background: 'var(--surface)', color: 'var(--text2)', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+        + 行を追加
+      </button>
     </div>
   )
 }
