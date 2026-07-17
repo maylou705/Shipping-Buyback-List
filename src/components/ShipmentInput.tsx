@@ -25,9 +25,9 @@ interface DraftRow {
   tracking_no: string
   recipient: string
   agent: string
-  freight: string
   op: string
-  inventory_note: string
+  freight: string
+  remarks: string
 }
 
 interface SuggestPos { top: number; left: number; width: number }
@@ -116,9 +116,9 @@ export default function ShipmentInput({ supabase, date, setDate, shipments, relo
     tracking_no: carryFrom?.tracking_no || '',
     recipient: carryFrom?.recipient || '',
     agent: carryFrom?.agent || '',
-    freight: carryFrom?.freight || '',
     op: carryFrom?.op || '',
-    inventory_note: '',
+    freight: carryFrom?.freight || '',
+    remarks: carryFrom?.remarks || '',
   })
 
   const [drafts, setDrafts] = useState<DraftRow[]>(() => [blankDraft()])
@@ -161,9 +161,10 @@ export default function ShipmentInput({ supabase, date, setDate, shipments, relo
       tracking_no: meta ? meta.tracking_no : d.tracking_no,
       recipient: meta ? meta.recipient : d.recipient,
       agent: meta ? meta.agent : d.agent,
-      freight: meta ? meta.freight : (+d.freight || 0),
       send_op: meta ? meta.send_op : d.op,
-      remarks: '', invoice_no: '', inventory_note: d.inventory_note, order_note: '', carry_over: '',
+      freight: meta ? meta.freight : (+d.freight || 0),
+      remarks: meta ? meta.remarks : d.remarks,
+      invoice_no: '', inventory_note: '', order_note: '', carry_over: '',
       chk_liqoa: false, chk_pack: false,
     })
     setDrafts(prev => {
@@ -225,18 +226,19 @@ export default function ShipmentInput({ supabase, date, setDate, shipments, relo
         <table style={{ borderCollapse: 'collapse', width: '100%', background: TABLE_BG }}>
           <thead>
             <tr>
-              <th style={{ ...TH, textAlign: 'center', width: 44, position: 'sticky', left: 0, zIndex: 2 }}>梱包</th>
+              <th style={{ ...TH, textAlign: 'center', width: 44, position: 'sticky', left: 0, zIndex: 2 }}>梱包番号</th>
               <th style={{ ...TH, minWidth: 200 }}>商品名</th>
               <th style={{ ...TH, textAlign: 'right' }}>個数</th>
               <th style={{ ...TH, textAlign: 'right' }}>単価</th>
-              <th style={{ ...TH, textAlign: 'right' }}>金額</th>
               <th style={{ ...TH, textAlign: 'right' }}>重量</th>
               <th style={TH}>問番</th>
               <th style={{ ...TH, minWidth: 120 }}>宛先</th>
               <th style={TH}>代行者名</th>
-              <th style={{ ...TH, textAlign: 'right' }}>送料</th>
               {isFedex && <th style={TH}>発送OP</th>}
-              <th style={TH}>在庫内訳</th>
+              <th style={{ ...TH, textAlign: 'right' }}>送料</th>
+              <th style={{ ...TH, textAlign: 'right' }}>総重量</th>
+              <th style={{ ...TH, textAlign: 'right' }}>総金額</th>
+              <th style={{ ...TH, minWidth: 120 }}>備考</th>
               <th style={{ ...TH, width: 40 }}></th>
             </tr>
           </thead>
@@ -264,7 +266,6 @@ export default function ShipmentInput({ supabase, date, setDate, shipments, relo
                   <td style={CELL}>
                     <input type="number" defaultValue={r.unit_price} onBlur={e => { const up = +e.target.value || 0; if (up !== r.unit_price) updateRow(r.id, { unit_price: up, amount: (r.qty || 0) * up }) }} style={inputStyle({ textAlign: 'right' })} />
                   </td>
-                  <td style={{ ...CELL, textAlign: 'right', fontWeight: 700, color: col }}>¥{fmt(r.amount)}</td>
                   <td style={CELL}>
                     <input type="number" step="0.01" defaultValue={r.weight} onBlur={e => { const w = +e.target.value || 0; if (w !== r.weight) updateRow(r.id, { weight: w, total_weight: (r.qty || 0) * w }) }} style={inputStyle({ textAlign: 'right' })} />
                   </td>
@@ -279,9 +280,6 @@ export default function ShipmentInput({ supabase, date, setDate, shipments, relo
                       <td style={CELL} rowSpan={pack.rows.length}>
                         <input defaultValue={first.agent} onBlur={e => e.target.value !== first.agent && updatePackFields(pack.packNo, first.date, { agent: e.target.value })} style={inputStyle()} />
                       </td>
-                      <td style={CELL} rowSpan={pack.rows.length}>
-                        <input type="number" defaultValue={first.freight} onBlur={e => { const fr = +e.target.value || 0; if (fr !== first.freight) updatePackFields(pack.packNo, first.date, { freight: fr }) }} style={inputStyle({ textAlign: 'right' })} />
-                      </td>
                       {isFedex && (
                         <td style={CELL} rowSpan={pack.rows.length}>
                           <select defaultValue={first.send_op} onBlur={e => e.target.value !== first.send_op && updatePackFields(pack.packNo, first.date, { send_op: e.target.value })} style={inputStyle()}>
@@ -290,11 +288,18 @@ export default function ShipmentInput({ supabase, date, setDate, shipments, relo
                           </select>
                         </td>
                       )}
+                      <td style={CELL} rowSpan={pack.rows.length}>
+                        <input type="number" defaultValue={first.freight} onBlur={e => { const fr = +e.target.value || 0; if (fr !== first.freight) updatePackFields(pack.packNo, first.date, { freight: fr }) }} style={inputStyle({ textAlign: 'right' })} />
+                      </td>
                     </>
                   )}
-                  <td style={CELL}>
-                    <input defaultValue={r.inventory_note} onBlur={e => e.target.value !== r.inventory_note && updateRow(r.id, { inventory_note: e.target.value })} style={inputStyle()} />
-                  </td>
+                  <td style={{ ...CELL, textAlign: 'right', color: 'var(--text2)' }}>{(r.total_weight ?? 0).toFixed(2)}</td>
+                  <td style={{ ...CELL, textAlign: 'right', fontWeight: 700, color: col }}>¥{fmt(r.amount)}</td>
+                  {ri === 0 && (
+                    <td style={CELL} rowSpan={pack.rows.length}>
+                      <input defaultValue={first.remarks} onBlur={e => e.target.value !== first.remarks && updatePackFields(pack.packNo, first.date, { remarks: e.target.value })} style={inputStyle()} />
+                    </td>
+                  )}
                   <td style={{ ...CELL, textAlign: 'center' }}>
                     <button onClick={() => delRow(r.id)} style={{ fontSize: 10, padding: '1px 5px', border: '1px solid #D8C270', borderRadius: 3, background: '#fff', cursor: 'pointer', color: '#a33' }}>✕</button>
                   </td>
@@ -306,6 +311,9 @@ export default function ShipmentInput({ supabase, date, setDate, shipments, relo
             {drafts.map(d => {
               const existingPack = packs.find(p => p.packNo === d.pack_no)
               const meta = existingPack ? existingPack.rows[0] : null
+              const qtyN = +d.qty || 0
+              const priceN = +d.unit_price || 0
+              const weightN = +d.weight || 0
               return (
                 <tr key={d._id} style={{ background: DRAFT_BG }}>
                   <td style={{ ...CELL, position: 'sticky', left: 0, zIndex: 1, background: DRAFT_BG }}>
@@ -332,22 +340,20 @@ export default function ShipmentInput({ supabase, date, setDate, shipments, relo
                   </td>
                   <td style={CELL}><input type="number" value={d.qty} onChange={e => updateDraft(d._id, { qty: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); confirmDraft(d) } }} style={inputStyle({ textAlign: 'right' })} /></td>
                   <td style={CELL}><input type="number" value={d.unit_price} onChange={e => updateDraft(d._id, { unit_price: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); confirmDraft(d) } }} style={inputStyle({ textAlign: 'right' })} /></td>
-                  <td style={{ ...CELL, textAlign: 'right', color: 'var(--text3)' }}>¥{fmt((+d.qty || 0) * (+d.unit_price || 0))}</td>
                   <td style={CELL}><input type="number" step="0.01" value={d.weight} onChange={e => updateDraft(d._id, { weight: e.target.value })} style={inputStyle({ textAlign: 'right' })} /></td>
                   {meta ? (
                     <>
                       <td style={CELL} title="梱包内の他の商品と共通です"><div style={readonlyStyle()}>{meta.tracking_no || '（未入力）'}</div></td>
                       <td style={CELL} title="梱包内の他の商品と共通です"><div style={readonlyStyle()}>{meta.recipient || '（未入力）'}</div></td>
                       <td style={CELL} title="梱包内の他の商品と共通です"><div style={readonlyStyle()}>{meta.agent || '（未入力）'}</div></td>
-                      <td style={CELL} title="梱包内の他の商品と共通です"><div style={readonlyStyle({ textAlign: 'right' })}>¥{fmt(meta.freight)}</div></td>
                       {isFedex && <td style={CELL} title="梱包内の他の商品と共通です"><div style={readonlyStyle()}>{meta.send_op || '（未選択）'}</div></td>}
+                      <td style={CELL} title="梱包内の他の商品と共通です"><div style={readonlyStyle({ textAlign: 'right' })}>¥{fmt(meta.freight)}</div></td>
                     </>
                   ) : (
                     <>
                       <td style={CELL}><input value={d.tracking_no} onChange={e => updateDraft(d._id, { tracking_no: e.target.value })} style={inputStyle()} /></td>
                       <td style={CELL}><input value={d.recipient} onChange={e => updateDraft(d._id, { recipient: e.target.value })} style={inputStyle()} /></td>
                       <td style={CELL}><input value={d.agent} onChange={e => updateDraft(d._id, { agent: e.target.value })} style={inputStyle()} /></td>
-                      <td style={CELL}><input type="number" value={d.freight} onChange={e => updateDraft(d._id, { freight: e.target.value })} style={inputStyle({ textAlign: 'right' })} /></td>
                       {isFedex && (
                         <td style={CELL}>
                           <select value={d.op} onChange={e => updateDraft(d._id, { op: e.target.value })} style={inputStyle()}>
@@ -356,9 +362,16 @@ export default function ShipmentInput({ supabase, date, setDate, shipments, relo
                           </select>
                         </td>
                       )}
+                      <td style={CELL}><input type="number" value={d.freight} onChange={e => updateDraft(d._id, { freight: e.target.value })} style={inputStyle({ textAlign: 'right' })} /></td>
                     </>
                   )}
-                  <td style={CELL}><input value={d.inventory_note} onChange={e => updateDraft(d._id, { inventory_note: e.target.value })} style={inputStyle()} /></td>
+                  <td style={{ ...CELL, textAlign: 'right', color: 'var(--text3)' }}>{(qtyN * weightN).toFixed(2)}</td>
+                  <td style={{ ...CELL, textAlign: 'right', color: 'var(--text3)' }}>¥{fmt(qtyN * priceN)}</td>
+                  {meta ? (
+                    <td style={CELL} title="梱包内の他の商品と共通です"><div style={readonlyStyle()}>{meta.remarks || '（未入力）'}</div></td>
+                  ) : (
+                    <td style={CELL}><input value={d.remarks} onChange={e => updateDraft(d._id, { remarks: e.target.value })} style={inputStyle()} /></td>
+                  )}
                   <td style={{ ...CELL, textAlign: 'center', whiteSpace: 'nowrap' }}>
                     <button onClick={() => confirmDraft(d)} disabled={savingId === d._id} title="この行を確定"
                       style={{ fontSize: 12, padding: '3px 7px', border: 'none', borderRadius: 3, background: col, color: '#fff', cursor: 'pointer', fontWeight: 800, marginRight: 3 }}>✓</button>
