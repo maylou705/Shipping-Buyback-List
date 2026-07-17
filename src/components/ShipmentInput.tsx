@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
-import { Shipment, Carrier, CARRIERS, CARRIER_COLOR, FEDEX_OPS, fmt, uid } from '@/lib/types'
+import { Shipment, Carrier, CARRIERS, CARRIER_COLOR, CARRIER_BG, FEDEX_OPS, fmt, uid } from '@/lib/types'
 import { SupabaseClient } from '@supabase/supabase-js'
 import { createQuoteClient } from '@/lib/supabase'
 import { buildPackGroups, Pack } from './PackGroupTable'
@@ -29,10 +29,11 @@ interface DraftRow {
   inventory_note: string
 }
 
-const CELL: React.CSSProperties = { border: '1px solid #E3CE86', padding: '4px 6px', fontSize: 12 }
-const TH: React.CSSProperties = { ...CELL, background: '#F6DE8B', fontWeight: 700, textAlign: 'left', whiteSpace: 'nowrap', color: '#5A4300' }
 function inputStyle(extra?: React.CSSProperties): React.CSSProperties {
   return { width: '100%', fontSize: 12, padding: '3px 5px', background: '#fff', border: '1px solid #D8C270', borderRadius: 3, outline: 'none', color: '#333', ...extra }
+}
+function readonlyStyle(extra?: React.CSSProperties): React.CSSProperties {
+  return { width: '100%', fontSize: 12, padding: '3px 5px', background: '#F1F1EC', border: '1px dashed #C9C0A0', borderRadius: 3, color: 'var(--text2)', ...extra }
 }
 
 export default function ShipmentInput({ supabase, date, setDate, shipments, reload, inbounds = [] }: Props) {
@@ -77,6 +78,12 @@ export default function ShipmentInput({ supabase, date, setDate, shipments, relo
   const [carrier, setCarrier] = useState<Carrier>('FedEx')
   const col = CARRIER_COLOR[carrier]
   const isFedex = carrier === 'FedEx'
+
+  // キャリアの色に合わせたセル配色
+  const CELL: React.CSSProperties = { border: `1px solid ${col}55`, padding: '4px 6px', fontSize: 12 }
+  const TH: React.CSSProperties = { ...CELL, background: col, fontWeight: 700, textAlign: 'left', whiteSpace: 'nowrap', color: '#fff' }
+  const TABLE_BG = CARRIER_BG[carrier]
+  const PACK_CELL_BG = col + '26'
 
   const dayShips = shipments.filter(s => s.date === date && s.carrier === carrier)
   const packs: Pack[] = buildPackGroups(dayShips)
@@ -127,12 +134,17 @@ export default function ShipmentInput({ supabase, date, setDate, shipments, relo
     const qty = +d.qty || 0
     const unit_price = +d.unit_price || 0
     const weight = +d.weight || 0
+    const existingPack = packs.find(p => p.packNo === d.pack_no)
+    const meta = existingPack ? existingPack.rows[0] : null
     await supabase.from('shipments').insert({
       date, carrier, pack_no: d.pack_no || nextPackNo + 1, domestic: false,
       product_name: d.product_name.trim(), qty, unit_price, amount: qty * unit_price,
       weight, total_weight: qty * weight,
-      tracking_no: d.tracking_no, recipient: d.recipient, agent: d.agent,
-      freight: +d.freight || 0, send_op: d.op,
+      tracking_no: meta ? meta.tracking_no : d.tracking_no,
+      recipient: meta ? meta.recipient : d.recipient,
+      agent: meta ? meta.agent : d.agent,
+      freight: meta ? meta.freight : (+d.freight || 0),
+      send_op: meta ? meta.send_op : d.op,
       remarks: '', invoice_no: '', inventory_note: d.inventory_note, order_note: '', carry_over: '',
       chk_liqoa: false, chk_pack: false,
     })
@@ -188,11 +200,14 @@ export default function ShipmentInput({ supabase, date, setDate, shipments, relo
         </div>
       </div>
 
-      <div style={{ overflowX: 'auto' }}>
-        <table style={{ borderCollapse: 'collapse', width: '100%', background: '#FFFBEF' }}>
+      <div style={{ fontSize: 11, color: 'var(--text2)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
+        <span>◀</span> 表は横にスクロールできます（すべての項目は右側まで続いています） <span>▶</span>
+      </div>
+      <div style={{ overflowX: 'auto', border: `1px solid ${col}55`, borderRadius: 'var(--radius-sm)' }}>
+        <table style={{ borderCollapse: 'collapse', width: '100%', background: TABLE_BG }}>
           <thead>
             <tr>
-              <th style={{ ...TH, textAlign: 'center', width: 44 }}>梱包</th>
+              <th style={{ ...TH, textAlign: 'center', width: 44, position: 'sticky', left: 0, zIndex: 2 }}>梱包</th>
               <th style={{ ...TH, minWidth: 200 }}>商品名</th>
               <th style={{ ...TH, textAlign: 'right' }}>個数</th>
               <th style={{ ...TH, textAlign: 'right' }}>単価</th>
@@ -213,7 +228,7 @@ export default function ShipmentInput({ supabase, date, setDate, shipments, relo
               return pack.rows.map((r, ri) => (
                 <tr key={r.id}>
                   {ri === 0 && (
-                    <td rowSpan={pack.rows.length} style={{ ...CELL, textAlign: 'center', verticalAlign: 'top', fontWeight: 800, color: col, background: '#FCEFC4' }}>
+                    <td rowSpan={pack.rows.length} style={{ ...CELL, textAlign: 'center', verticalAlign: 'top', fontWeight: 800, color: col, background: PACK_CELL_BG, position: 'sticky', left: 0, zIndex: 1 }}>
                       {pack.packNo}
                       <div>
                         <button onClick={() => delPack(pack.packNo, first.date)} title="梱包削除"
@@ -268,10 +283,13 @@ export default function ShipmentInput({ supabase, date, setDate, shipments, relo
               ))
             })}
 
-            {drafts.map(d => (
+            {drafts.map(d => {
+              const existingPack = packs.find(p => p.packNo === d.pack_no)
+              const meta = existingPack ? existingPack.rows[0] : null
+              return (
               <tr key={d._id} style={{ background: '#FFF9E0' }}
                 onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) commitDraft(d) }}>
-                <td style={CELL}>
+                <td style={{ ...CELL, position: 'sticky', left: 0, zIndex: 1, background: '#FFF9E0' }}>
                   <input type="number" value={d.pack_no} onChange={e => updateDraft(d._id, { pack_no: +e.target.value || 1 })} style={inputStyle({ textAlign: 'center' })} />
                 </td>
                 <td style={{ ...CELL, position: 'relative' }}>
@@ -316,22 +334,35 @@ export default function ShipmentInput({ supabase, date, setDate, shipments, relo
                 <td style={CELL}><input type="number" value={d.unit_price} onChange={e => updateDraft(d._id, { unit_price: e.target.value })} style={inputStyle({ textAlign: 'right' })} /></td>
                 <td style={{ ...CELL, textAlign: 'right', color: 'var(--text3)' }}>¥{fmt((+d.qty || 0) * (+d.unit_price || 0))}</td>
                 <td style={CELL}><input type="number" step="0.01" value={d.weight} onChange={e => updateDraft(d._id, { weight: e.target.value })} style={inputStyle({ textAlign: 'right' })} /></td>
-                <td style={CELL}><input value={d.tracking_no} onChange={e => updateDraft(d._id, { tracking_no: e.target.value })} style={inputStyle()} /></td>
-                <td style={CELL}><input value={d.recipient} onChange={e => updateDraft(d._id, { recipient: e.target.value })} style={inputStyle()} /></td>
-                <td style={CELL}><input value={d.agent} onChange={e => updateDraft(d._id, { agent: e.target.value })} style={inputStyle()} /></td>
-                <td style={CELL}><input type="number" value={d.freight} onChange={e => updateDraft(d._id, { freight: e.target.value })} style={inputStyle({ textAlign: 'right' })} /></td>
-                {isFedex && (
-                  <td style={CELL}>
-                    <select value={d.op} onChange={e => updateDraft(d._id, { op: e.target.value })} style={inputStyle()}>
-                      <option value="">選択</option>
-                      {FEDEX_OPS.map(o => <option key={o}>{o}</option>)}
-                    </select>
-                  </td>
+                {meta ? (
+                  <>
+                    <td style={CELL} title="梱包内の他の商品と共通です"><div style={readonlyStyle()}>{meta.tracking_no || '（未入力）'}</div></td>
+                    <td style={CELL} title="梱包内の他の商品と共通です"><div style={readonlyStyle()}>{meta.recipient || '（未入力）'}</div></td>
+                    <td style={CELL} title="梱包内の他の商品と共通です"><div style={readonlyStyle()}>{meta.agent || '（未入力）'}</div></td>
+                    <td style={CELL} title="梱包内の他の商品と共通です"><div style={readonlyStyle({ textAlign: 'right' })}>¥{fmt(meta.freight)}</div></td>
+                    {isFedex && <td style={CELL} title="梱包内の他の商品と共通です"><div style={readonlyStyle()}>{meta.send_op || '（未選択）'}</div></td>}
+                  </>
+                ) : (
+                  <>
+                    <td style={CELL}><input value={d.tracking_no} onChange={e => updateDraft(d._id, { tracking_no: e.target.value })} style={inputStyle()} /></td>
+                    <td style={CELL}><input value={d.recipient} onChange={e => updateDraft(d._id, { recipient: e.target.value })} style={inputStyle()} /></td>
+                    <td style={CELL}><input value={d.agent} onChange={e => updateDraft(d._id, { agent: e.target.value })} style={inputStyle()} /></td>
+                    <td style={CELL}><input type="number" value={d.freight} onChange={e => updateDraft(d._id, { freight: e.target.value })} style={inputStyle({ textAlign: 'right' })} /></td>
+                    {isFedex && (
+                      <td style={CELL}>
+                        <select value={d.op} onChange={e => updateDraft(d._id, { op: e.target.value })} style={inputStyle()}>
+                          <option value="">選択</option>
+                          {FEDEX_OPS.map(o => <option key={o}>{o}</option>)}
+                        </select>
+                      </td>
+                    )}
+                  </>
                 )}
                 <td style={CELL}><input value={d.inventory_note} onChange={e => updateDraft(d._id, { inventory_note: e.target.value })} style={inputStyle()} /></td>
                 <td style={CELL}></td>
               </tr>
-            ))}
+              )
+            })}
           </tbody>
         </table>
       </div>
