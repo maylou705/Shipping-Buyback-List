@@ -1,8 +1,11 @@
 'use client'
+import { useState, useEffect } from 'react'
 import { Shipment, Inbound, CARRIERS, CARRIER_COLOR, CARRIER_BG, fmt, fmtDate, weekday, todayStr } from '@/lib/types'
 import { SupabaseClient } from '@supabase/supabase-js'
-import PackGroupTable, { buildPackGroups } from './PackGroupTable'
-import { useState } from 'react'
+import { createQuoteClient } from '@/lib/supabase'
+import { buildPackGroups } from './PackGroupTable'
+import CarrierWorkPanel from './CarrierWorkPanel'
+import InboundWorkPanel from './InboundWorkPanel'
 
 interface Props {
   supabase: SupabaseClient
@@ -12,9 +15,37 @@ interface Props {
   reload: () => void
 }
 
+interface ProductInfo { code: string; name: string; recore_pd_code?: string | null; grade?: string; unit_type?: string }
+
 export default function Dashboard({ supabase, shipments, inbounds, reload }: Props) {
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
+  const [openMap, setOpenMap] = useState<Record<string, boolean>>({})
+  const [products, setProducts] = useState<ProductInfo[]>([])
+  const [inventoryByPd, setInventoryByPd] = useState<Record<string, number>>({})
   const date = todayStr()
+
+  // ── 商品マスタ・在庫を一括で読み込み、全パネルで共有 ──
+  useEffect(() => {
+    const quote = createQuoteClient()
+    quote.from('product_units').select('id, product_id, unit_type, short_code, grade, recore_pd_code').then(({ data: units, error }) => {
+      if (error) { console.error('product_units load error', error); return }
+      if (units) {
+        setProducts(units.filter((u: any) => u.short_code).map((u: any) => ({
+          code: u.short_code, name: u.short_code, recore_pd_code: u.recore_pd_code, grade: u.grade, unit_type: u.unit_type,
+        })))
+      }
+    })
+    supabase.from('inventory').select('imported_at').order('imported_at', { ascending: false }).limit(1).then(({ data: latest }) => {
+      if (!latest?.length) return
+      supabase.from('inventory').select('product_code, grade, qty').eq('imported_at', latest[0].imported_at).then(({ data: inv }) => {
+        if (inv) {
+          const m: Record<string, number> = {}
+          inv.forEach((r: any) => { const k = `${r.product_code}__${r.grade}`; m[k] = (m[k] || 0) + r.qty })
+          setInventoryByPd(m)
+        }
+      })
+    })
+  }, [supabase])
+
   const ds = shipments.filter(s => s.date === date)
   const di = inbounds.filter(b => b.date === date)
   const tOut = ds.reduce((a, s) => a + (s.amount || 0), 0)
@@ -22,12 +53,10 @@ export default function Dashboard({ supabase, shipments, inbounds, reload }: Pro
   const aOut = shipments.reduce((a, s) => a + (s.amount || 0), 0)
   const aIn  = inbounds.reduce((a, b)  => a + (b.amount || 0), 0)
 
-  const toggle = (k: string) => setCollapsed(p => ({ ...p, [k]: !p[k] }))
+  const toggleOpen = (k: string) => setOpenMap(p => ({ ...p, [k]: !p[k] }))
 
-  const chkInb = async (id: string, field: 'chk_liqoa' | 'arrived', val: boolean) => {
-    await supabase.from('inbounds').update({ [field]: val }).eq('id', id)
-    reload()
-  }
+  const inboundQtyMap: Record<string, number> = {}
+  inbounds.forEach(b => { const k = (b.product_name || '').toLowerCase(); if (k) inboundQtyMap[k] = (inboundQtyMap[k] || 0) + (b.qty || 0) })
 
   const KPI = ({ label, val, sub, color }: { label: string; val: string; sub?: string; color?: string }) => (
     <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '12px 14px' }}>
@@ -37,17 +66,13 @@ export default function Dashboard({ supabase, shipments, inbounds, reload }: Pro
     </div>
   )
 
-  // ── キャリアごとの集計（概要タイル・詳細セクション共通で使用） ──
   const carrierStats = CARRIERS.map(carrier => {
     const cRows = ds.filter(s => s.carrier === carrier)
     const packs = buildPackGroups(cRows)
     const cTotal = cRows.reduce((a, r) => a + (r.amount || 0), 0)
-    const cW     = cRows.reduce((a, r) => a + (r.total_weight || 0), 0)
     const allChk = cRows.length > 0 && cRows.every(r => r.chk_liqoa && r.chk_pack)
-    return { carrier, cRows, packs, cTotal, cW, allChk, hasData: packs.length > 0 }
+    return { carrier, cRows, packs, cTotal, allChk, hasData: packs.length > 0 }
   })
-  const activeCarriers = carrierStats.filter(c => c.hasData)
-  const idleCarriers = carrierStats.filter(c => !c.hasData)
   const inbArrived = di.filter(x => x.arrived).length
 
   return (
@@ -55,7 +80,7 @@ export default function Dashboard({ supabase, shipments, inbounds, reload }: Pro
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 16 }}>
         <div>
           <div style={{ fontSize: 19, fontWeight: 800 }}>ダッシュボード</div>
-          <div style={{ fontSize: 12, color: 'var(--text2)' }}>{fmtDate(date)}（{weekday(date)}）・今日やることだけを表示しています</div>
+          <div style={{ fontSize: 12, color: 'var(--text2)' }}>{fmtDate(date)}（{weekday(date)}）・チェックや入力はすべてこの画面で完結します</div>
         </div>
       </div>
 
@@ -69,21 +94,24 @@ export default function Dashboard({ supabase, shipments, inbounds, reload }: Pro
         <KPI label="累計 粗利" val={`¥${fmt(aOut - aIn)}`} color={aOut >= aIn ? 'var(--success)' : 'var(--danger)'} />
       </div>
 
-      {/* ── 概要タイル：全種類を一目で ── */}
-      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text2)', marginBottom: 6 }}>本日の状況（概要）</div>
+      {/* ── 概要タイル：全種類を一目で。クリックで下の該当パネルが開閉 ── */}
+      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text2)', marginBottom: 6 }}>本日の状況（タップで開閉）</div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(120px,1fr))', gap: 8, marginBottom: 20 }}>
         {carrierStats.map(({ carrier, packs, cRows, cTotal, allChk, hasData }) => {
           const col = CARRIER_COLOR[carrier]
+          const key = `carrier_${carrier}`
+          const isOpen = openMap[key] !== undefined ? openMap[key] : hasData
           return (
-            <div key={carrier} style={{
-              border: `1.5px solid ${hasData ? col : 'var(--border)'}`,
+            <button key={carrier} onClick={() => toggleOpen(key)} style={{
+              textAlign: 'left', cursor: 'pointer',
+              border: `1.5px solid ${hasData ? col : (isOpen ? col : 'var(--border)')}`,
               borderRadius: 'var(--radius-sm)', padding: '8px 10px',
-              background: hasData ? CARRIER_BG[carrier] : 'var(--sf2)',
-              opacity: hasData ? 1 : 0.55,
+              background: hasData ? CARRIER_BG[carrier] : (isOpen ? CARRIER_BG[carrier] : 'var(--sf2)'),
+              opacity: hasData || isOpen ? 1 : 0.55,
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 4 }}>
                 <span style={{ width: 7, height: 7, borderRadius: '50%', background: hasData ? (allChk ? '#16a34a' : 'var(--warn)') : 'var(--text3)', flexShrink: 0 }} />
-                <span style={{ fontSize: 11, fontWeight: 800, color: hasData ? col : 'var(--text3)' }}>{carrier}</span>
+                <span style={{ fontSize: 11, fontWeight: 800, color: hasData || isOpen ? col : 'var(--text3)' }}>{carrier}</span>
               </div>
               {hasData ? (
                 <>
@@ -91,20 +119,21 @@ export default function Dashboard({ supabase, shipments, inbounds, reload }: Pro
                   <div style={{ fontSize: 10, color: 'var(--text2)' }}>{packs.length}梱包 / {cRows.length}商品</div>
                 </>
               ) : (
-                <div style={{ fontSize: 10, color: 'var(--text3)' }}>本日データなし</div>
+                <div style={{ fontSize: 10, color: 'var(--text3)' }}>タップして追加</div>
               )}
-            </div>
+            </button>
           )
         })}
-        <div style={{
-          border: `1.5px solid ${di.length ? 'var(--inbound)' : 'var(--border)'}`,
+        <button onClick={() => toggleOpen('inbound')} style={{
+          textAlign: 'left', cursor: 'pointer',
+          border: `1.5px solid ${di.length ? 'var(--inbound)' : ((openMap['inbound'] ?? di.length > 0) ? 'var(--inbound)' : 'var(--border)')}`,
           borderRadius: 'var(--radius-sm)', padding: '8px 10px',
-          background: di.length ? 'var(--inb-bg)' : 'var(--sf2)',
-          opacity: di.length ? 1 : 0.55,
+          background: di.length ? 'var(--inb-bg)' : ((openMap['inbound'] ?? di.length > 0) ? 'var(--inb-bg)' : 'var(--sf2)'),
+          opacity: di.length || (openMap['inbound'] ?? false) ? 1 : 0.55,
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 4 }}>
             <span style={{ width: 7, height: 7, borderRadius: '50%', background: di.length ? (inbArrived === di.length ? '#16a34a' : 'var(--warn)') : 'var(--text3)', flexShrink: 0 }} />
-            <span style={{ fontSize: 11, fontWeight: 800, color: di.length ? 'var(--inbound)' : 'var(--text3)' }}>入荷</span>
+            <span style={{ fontSize: 11, fontWeight: 800, color: 'var(--inbound)' }}>入荷</span>
           </div>
           {di.length ? (
             <>
@@ -112,92 +141,42 @@ export default function Dashboard({ supabase, shipments, inbounds, reload }: Pro
               <div style={{ fontSize: 10, color: 'var(--text2)' }}>{di.length}件・到着{inbArrived}/{di.length}</div>
             </>
           ) : (
-            <div style={{ fontSize: 10, color: 'var(--text3)' }}>本日データなし</div>
+            <div style={{ fontSize: 10, color: 'var(--text3)' }}>タップして追加</div>
           )}
-        </div>
+        </button>
       </div>
 
-      {!activeCarriers.length && !di.length && (
-        <div className="empty" style={{ marginBottom: 16 }}>本日はまだ出荷・入荷データがありません</div>
-      )}
-
-      {/* ── 詳細：データがある種類だけをその場で編集 ── */}
-      {activeCarriers.map(({ carrier, packs, cRows, cTotal, cW, allChk }) => {
-        const col = CARRIER_COLOR[carrier]
-        const bg  = CARRIER_BG[carrier]
+      {/* ── 各キャリアのパネル：データの有無に関わらず全種類を表示。開けばその場で追加・編集 ── */}
+      {carrierStats.map(({ carrier, cRows, hasData }) => {
         const key = `carrier_${carrier}`
-        const open = collapsed[key] !== undefined ? !collapsed[key] : true
-
+        const open = openMap[key] !== undefined ? openMap[key] : hasData
         return (
-          <div key={carrier} className="card" style={{ marginBottom: 12 }}>
-            <div className="card-head" style={{ cursor: 'pointer', borderTop: `3px solid ${col}`, background: bg }} onClick={() => toggle(key)}>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <span style={{ fontWeight: 800, fontSize: 13 }}>{carrier}</span>
-                <span style={{ fontSize: 11, color: 'var(--text2)' }}>{packs.length}梱包 / {cRows.length}商品</span>
-                <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 8, ...(allChk ? { background: '#EDF8F3', color: '#16a34a', border: '1px solid #AADDC2' } : { background: '#FEF9EC', color: 'var(--warn)', border: '1px solid #EEE098' }) }}>
-                  {allChk ? '✓ 完了' : '作業中'}
-                </span>
-              </span>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <span style={{ fontSize: 11, color: 'var(--text2)' }}>{cW.toFixed(2)}kg</span>
-                <span style={{ fontWeight: 800, fontSize: 13 }}>¥{fmt(cTotal)}</span>
-                <span style={{ color: 'var(--text3)', fontSize: 12 }}>{open ? '▲' : '▼'}</span>
-              </span>
-            </div>
-            {open && (
-              <div style={{ padding: 0 }}>
-                <PackGroupTable packs={packs} color={col} showChk supabase={supabase} onUpdate={reload} />
-              </div>
-            )}
-          </div>
+          <CarrierWorkPanel
+            key={carrier}
+            supabase={supabase}
+            date={date}
+            carrier={carrier}
+            dayShips={cRows}
+            inboundQtyMap={inboundQtyMap}
+            reload={reload}
+            products={products}
+            inventoryByPd={inventoryByPd}
+            open={open}
+            onToggleOpen={() => toggleOpen(key)}
+          />
         )
       })}
 
-      {di.length > 0 && (() => {
-        const inboundOpen = collapsed['inbound'] !== undefined ? !collapsed['inbound'] : true
-        return (
-          <div className="card" style={{ marginBottom: 12 }}>
-            <div className="card-head" style={{ cursor: 'pointer', borderTop: '3px solid var(--inbound)', background: 'var(--inb-bg)' }} onClick={() => toggle('inbound')}>
-              <span style={{ fontWeight: 800, fontSize: 13, display: 'flex', alignItems: 'center', gap: 10 }}>
-                入荷
-                <span style={{ fontSize: 11, color: 'var(--text2)', fontWeight: 400 }}>{di.length}件</span>
-                <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 8, ...(inbArrived === di.length ? { background: '#EDF8F3', color: '#16a34a', border: '1px solid #AADDC2' } : { background: '#FEF9EC', color: 'var(--warn)', border: '1px solid #EEE098' }) }}>
-                  到着 {inbArrived}/{di.length}
-                </span>
-              </span>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <span style={{ fontWeight: 800, fontSize: 13 }}>¥{fmt(tIn)}</span>
-                <span style={{ color: 'var(--text3)', fontSize: 12 }}>{inboundOpen ? '▲' : '▼'}</span>
-              </span>
-            </div>
-            {inboundOpen && (
-              <div style={{ overflowX: 'auto' }}>
-                <table>
-                  <thead><tr>
-                    <th>区分</th><th>会社/名前</th><th>商品名</th>
-                    <th style={{ textAlign: 'right' }}>個数</th><th style={{ textAlign: 'right' }}>単価</th>
-                    <th style={{ textAlign: 'right' }}>金額</th><th>リコア</th><th>到着</th>
-                  </tr></thead>
-                  <tbody>
-                    {di.map(x => (
-                      <tr key={x.id} style={{ background: x.arrived ? '#EDF8F3' : undefined }}>
-                        <td><span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 5, background: 'var(--inb-bg)', color: 'var(--inbound)', border: '1px solid var(--inb-bd)' }}>{x.inb_section === 'corporate' ? '企業' : x.inb_section === 'purchase' ? '買取' : '郵送'}</span></td>
-                        <td>{x.company || '-'}</td>
-                        <td style={{ fontWeight: 600 }}>{x.product_name || '-'}</td>
-                        <td style={{ textAlign: 'right' }}>{x.qty}</td>
-                        <td style={{ textAlign: 'right' }}>¥{fmt(x.unit_price)}</td>
-                        <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--inbound)' }}>¥{fmt(x.amount)}</td>
-                        <td style={{ textAlign: 'center' }}><input type="checkbox" checked={x.chk_liqoa} onChange={e => chkInb(x.id, 'chk_liqoa', e.target.checked)} style={{ accentColor: 'var(--inbound)', width: 14, height: 14 }} /></td>
-                        <td style={{ textAlign: 'center' }}><input type="checkbox" checked={x.arrived} onChange={e => chkInb(x.id, 'arrived', e.target.checked)} style={{ accentColor: 'var(--success)', width: 14, height: 14 }} /></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        )
-      })()}
+      <InboundWorkPanel
+        supabase={supabase}
+        date={date}
+        di={di}
+        reload={reload}
+        products={products}
+        inventoryByPd={inventoryByPd}
+        open={openMap['inbound'] !== undefined ? openMap['inbound'] : di.length > 0}
+        onToggleOpen={() => toggleOpen('inbound')}
+      />
     </div>
   )
 }
