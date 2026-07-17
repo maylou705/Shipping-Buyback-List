@@ -1,6 +1,6 @@
 'use client'
-import { useState, useEffect, useRef } from 'react'
-import { Inbound, InbSection, INB_SECTION_LABEL, fmt, uid } from '@/lib/types'
+import { useState, useEffect } from 'react'
+import { Inbound, InbSection, INB_SECTION_LABEL, fmt } from '@/lib/types'
 import { SupabaseClient } from '@supabase/supabase-js'
 import { createQuoteClient } from '@/lib/supabase'
 
@@ -15,8 +15,7 @@ interface Props {
 const SEC_COLOR: Record<InbSection, string> = { corporate: 'var(--yamato)', purchase: 'var(--inbound)', postal: 'var(--overseas)' }
 const SEC_BG:    Record<InbSection, string> = { corporate: 'var(--yam-bg)', purchase: 'var(--inb-bg)',  postal: 'var(--ov-bg)' }
 
-interface DraftRow {
-  _id: string
+interface EntryRow {
   company: string
   product_name: string
   qty: string
@@ -33,12 +32,13 @@ function inputStyle(extra?: React.CSSProperties): React.CSSProperties {
 export default function InboundInput({ supabase, date, setDate, inbounds, reload }: Props) {
   const [products, setProducts] = useState<{ code: string; name: string; recore_pd_code?: string | null; grade?: string; unit_type?: string }[]>([])
   const [prodSearch, setProdSearch] = useState('')
-  const [activeDraftId, setActiveDraftId] = useState<string | null>(null)
+  const [showSuggest, setShowSuggest] = useState(false)
   const [inventoryByPd, setInventoryByPd] = useState<Record<string, number>>({})
 
   useEffect(() => {
     const quote = createQuoteClient()
-    quote.from('product_units').select('id, product_id, unit_type, short_code, grade, recore_pd_code').then(({ data: units }) => {
+    quote.from('product_units').select('id, product_id, unit_type, short_code, grade, recore_pd_code').then(({ data: units, error }) => {
+      if (error) { console.error('product_units load error', error); return }
       if (units) {
         setProducts(units.filter((u: any) => u.short_code).map((u: any) => ({
           code: u.short_code, name: u.short_code, recore_pd_code: u.recore_pd_code, grade: u.grade, unit_type: u.unit_type,
@@ -62,7 +62,7 @@ export default function InboundInput({ supabase, date, setDate, inbounds, reload
     return inventoryByPd[key]
   }
 
-  const filtered = prodSearch.length >= 1
+  const filtered = showSuggest && prodSearch.length >= 1
     ? products.filter(p => p.code.toLowerCase().includes(prodSearch.toLowerCase()) || p.name.toLowerCase().includes(prodSearch.toLowerCase())).slice(0, 8)
     : []
 
@@ -76,8 +76,7 @@ export default function InboundInput({ supabase, date, setDate, inbounds, reload
   const secRows = di.filter(x => x.inb_section === section)
   const tIn = di.reduce((a, b) => a + (b.amount || 0), 0)
 
-  const blankDraft = (carryFrom?: DraftRow): DraftRow => ({
-    _id: uid(),
+  const blankEntry = (carryFrom?: EntryRow): EntryRow => ({
     company: carryFrom?.company || '',
     product_name: '', qty: '', unit_price: '',
     tracking_no: carryFrom?.tracking_no || '',
@@ -85,41 +84,42 @@ export default function InboundInput({ supabase, date, setDate, inbounds, reload
     remarks: carryFrom?.remarks || '',
   })
 
-  const [drafts, setDrafts] = useState<DraftRow[]>(() => [blankDraft()])
+  const [entry, setEntry] = useState<EntryRow>(() => blankEntry())
+  const [saving, setSaving] = useState(false)
 
-  // 区分・日付が変わったらドラフトをリセット
+  // 区分・日付が変わったら入力欄をリセット
   useEffect(() => {
-    setDrafts([blankDraft()])
+    setEntry(blankEntry())
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [section, date])
 
-  const updateDraft = (id: string, patch: Partial<DraftRow>) => {
-    setDrafts(prev => prev.map(d => d._id === id ? { ...d, ...patch } : d))
-  }
+  const patchEntry = (patch: Partial<EntryRow>) => setEntry(prev => ({ ...prev, ...patch }))
 
-  const committingRef = useRef<Set<string>>(new Set())
-  const commitDraft = async (d: DraftRow) => {
-    if (!d.product_name.trim() || committingRef.current.has(d._id)) return
-    if (section === 'postal' && !d.tracking_no.trim()) {
-      alert('郵送買取は問番が必須です')
-      return
-    }
-    committingRef.current.add(d._id)
-    const qty = +d.qty || 0
-    const unit_price = +d.unit_price || 0
+  const confirmEntry = async () => {
+    if (!entry.product_name.trim()) { alert('商品名を入力してください'); return }
+    if (section === 'postal' && !entry.tracking_no.trim()) { alert('郵送買取は問番が必須です'); return }
+    if (saving) return
+    setSaving(true)
+    const qty = +entry.qty || 0
+    const unit_price = +entry.unit_price || 0
     await supabase.from('inbounds').insert({
       date, inb_section: section, arrived: false, chk_liqoa: false,
-      company: d.company, product_name: d.product_name.trim(),
+      company: entry.company, product_name: entry.product_name.trim(),
       qty, unit_price, amount: qty * unit_price,
-      tracking_no: d.tracking_no, payment_date: d.payment_date || null,
-      remarks: d.remarks, recore_no: '',
+      tracking_no: entry.tracking_no, payment_date: entry.payment_date || null,
+      remarks: entry.remarks, recore_no: '',
     })
-    setDrafts(prev => {
-      const rest = prev.filter(x => x._id !== d._id)
-      return rest.length ? [...rest, blankDraft(d)] : [blankDraft(d)]
-    })
-    committingRef.current.delete(d._id)
+    setEntry(blankEntry(entry))
+    setSaving(false)
+    setShowSuggest(false)
     reload()
+  }
+
+  const handleEntryKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !showSuggest) {
+      e.preventDefault()
+      confirmEntry()
+    }
   }
 
   const updateRow = async (id: string, patch: Record<string, any>) => {
@@ -169,13 +169,20 @@ export default function InboundInput({ supabase, date, setDate, inbounds, reload
               <th style={{ ...TH, textAlign: 'right' }}>個数</th>
               <th style={{ ...TH, textAlign: 'right' }}>単価</th>
               <th style={{ ...TH, textAlign: 'right' }}>金額</th>
-              <th style={TH}>問番{section === 'postal' && <span style={{ color: '#b33' }}> *</span>}</th>
+              <th style={TH}>問番{section === 'postal' && <span style={{ color: '#ffe0e0' }}> *</span>}</th>
               <th style={TH}>支払日</th>
               <th style={{ ...TH, minWidth: 140 }}>備考</th>
               <th style={{ ...TH, width: 1 }}></th>
             </tr>
           </thead>
           <tbody>
+            {!secRows.length && (
+              <tr>
+                <td colSpan={9} style={{ ...CELL, textAlign: 'center', color: 'var(--text3)', padding: '14px' }}>
+                  まだ確定した商品はありません。下の入力欄から追加してください。
+                </td>
+              </tr>
+            )}
             {secRows.map(x => (
               <tr key={x.id}>
                 <td style={{ ...CELL, position: 'sticky', left: 0, zIndex: 1, background: TABLE_BG }}><input defaultValue={x.company} onBlur={e => e.target.value !== x.company && updateRow(x.id, { company: e.target.value })} style={inputStyle()} /></td>
@@ -195,60 +202,73 @@ export default function InboundInput({ supabase, date, setDate, inbounds, reload
                 </td>
               </tr>
             ))}
-
-            {drafts.map(d => (
-              <tr key={d._id} style={{ background: '#FFF9E0' }}
-                onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) commitDraft(d) }}>
-                <td style={{ ...CELL, position: 'sticky', left: 0, zIndex: 1, background: '#FFF9E0' }}><input value={d.company} onChange={e => updateDraft(d._id, { company: e.target.value })} style={inputStyle()} /></td>
-                <td style={{ ...CELL, position: 'relative' }}>
-                  <input
-                    value={d.product_name}
-                    onChange={e => { updateDraft(d._id, { product_name: e.target.value }); setProdSearch(e.target.value); setActiveDraftId(d._id) }}
-                    onFocus={e => { setProdSearch(e.target.value); setActiveDraftId(d._id) }}
-                    placeholder="商品名またはコードで検索…"
-                    style={inputStyle()}
-                  />
-                  {activeDraftId === d._id && filtered.length > 0 && d.product_name === prodSearch && (
-                    <div style={{ position: 'absolute', top: '100%', left: 0, minWidth: 420, background: 'var(--surface)', border: '1.5px solid var(--inbound)', borderRadius: 'var(--radius-sm)', zIndex: 1000, boxShadow: '0 4px 12px rgba(0,0,0,.1)', maxHeight: 320, overflowY: 'auto' }}>
-                      {filtered.map(p => (
-                        <div key={p.code}
-                          onMouseDown={e => { e.preventDefault(); updateDraft(d._id, { product_name: p.name }); setProdSearch('') }}
-                          style={{ padding: '7px 12px', cursor: 'pointer', fontSize: 12, borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 10 }}
-                          onMouseEnter={e => (e.currentTarget.style.background = 'var(--inb-bg)')}
-                          onMouseLeave={e => (e.currentTarget.style.background = 'none')}
-                        >
-                          <span style={{ color: 'var(--text)', fontWeight: 600, flex: 1 }}>{p.name}</span>
-                          {getInventory(p.code) !== undefined && (
-                            <span style={{
-                              fontSize: 10, padding: '1px 6px', borderRadius: 8, whiteSpace: 'nowrap',
-                              background: getInventory(p.code)! > 0 ? 'var(--ov-bg)' : '#FEF2F2',
-                              color: getInventory(p.code)! > 0 ? 'var(--overseas)' : 'var(--danger)',
-                              border: `1px solid ${getInventory(p.code)! > 0 ? 'var(--ov-bd)' : '#FACACA'}`,
-                            }}>
-                              在庫 {getInventory(p.code)}
-                            </span>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </td>
-                <td style={CELL}><input type="number" value={d.qty} onChange={e => updateDraft(d._id, { qty: e.target.value })} style={inputStyle({ textAlign: 'right' })} /></td>
-                <td style={CELL}><input type="number" value={d.unit_price} onChange={e => updateDraft(d._id, { unit_price: e.target.value })} style={inputStyle({ textAlign: 'right' })} /></td>
-                <td style={{ ...CELL, textAlign: 'right', color: 'var(--text3)' }}>¥{fmt((+d.qty || 0) * (+d.unit_price || 0))}</td>
-                <td style={CELL}><input value={d.tracking_no} onChange={e => updateDraft(d._id, { tracking_no: e.target.value })} style={inputStyle()} /></td>
-                <td style={CELL}><input type="date" value={d.payment_date} onChange={e => updateDraft(d._id, { payment_date: e.target.value })} style={inputStyle()} /></td>
-                <td style={CELL}><input value={d.remarks} onChange={e => updateDraft(d._id, { remarks: e.target.value })} style={inputStyle()} /></td>
-                <td style={CELL}></td>
-              </tr>
-            ))}
           </tbody>
         </table>
       </div>
 
-      <button onClick={() => setDrafts(prev => [...prev, blankDraft(prev[prev.length - 1])])} style={{ marginTop: 10, padding: '6px 14px', borderRadius: 'var(--radius-sm)', border: '1.5px dashed var(--border)', background: 'var(--surface)', color: 'var(--text2)', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
-        + 行を追加
-      </button>
+      {/* 入力欄（常に1行・確定ボタンで追加） */}
+      <div style={{ marginTop: 16, background: TABLE_BG, border: `2px solid ${col}`, borderRadius: 'var(--radius)', padding: '12px 14px' }}>
+        <div style={{ fontSize: 12, fontWeight: 800, color: col, marginBottom: 10 }}>
+          ＋ 新しい商品を入力
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(150px,1fr))', gap: 8, marginBottom: 8 }} onKeyDown={handleEntryKeyDown}>
+          <div className="fg">
+            <label>{section === 'corporate' ? '会社名' : '買取者名'}</label>
+            <input value={entry.company} onChange={e => patchEntry({ company: e.target.value })} style={inputStyle()} />
+          </div>
+          <div className="fg" style={{ position: 'relative', gridColumn: 'span 2' }}>
+            <label>商品名</label>
+            <input
+              value={entry.product_name}
+              onChange={e => { patchEntry({ product_name: e.target.value }); setProdSearch(e.target.value); setShowSuggest(true) }}
+              onFocus={e => { setProdSearch(e.target.value); setShowSuggest(true) }}
+              placeholder="商品名またはコードで検索…"
+              style={inputStyle()}
+            />
+            {showSuggest && filtered.length > 0 && (
+              <div style={{ position: 'absolute', top: '100%', left: 0, minWidth: 420, background: 'var(--surface)', border: '1.5px solid var(--inbound)', borderRadius: 'var(--radius-sm)', zIndex: 1000, boxShadow: '0 4px 12px rgba(0,0,0,.1)', maxHeight: 320, overflowY: 'auto' }}>
+                {filtered.map(p => (
+                  <div key={p.code}
+                    onMouseDown={e => { e.preventDefault(); patchEntry({ product_name: p.name }); setProdSearch(''); setShowSuggest(false) }}
+                    style={{ padding: '7px 12px', cursor: 'pointer', fontSize: 12, borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 10 }}
+                    onMouseEnter={e => (e.currentTarget.style.background = 'var(--inb-bg)')}
+                    onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+                  >
+                    <span style={{ color: 'var(--text)', fontWeight: 600, flex: 1 }}>{p.name}</span>
+                    {getInventory(p.code) !== undefined && (
+                      <span style={{
+                        fontSize: 10, padding: '1px 6px', borderRadius: 8, whiteSpace: 'nowrap',
+                        background: getInventory(p.code)! > 0 ? 'var(--ov-bg)' : '#FEF2F2',
+                        color: getInventory(p.code)! > 0 ? 'var(--overseas)' : 'var(--danger)',
+                        border: `1px solid ${getInventory(p.code)! > 0 ? 'var(--ov-bd)' : '#FACACA'}`,
+                      }}>
+                        在庫 {getInventory(p.code)}
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="fg"><label>個数</label><input type="number" value={entry.qty} onChange={e => patchEntry({ qty: e.target.value })} placeholder="0" style={inputStyle()} /></div>
+          <div className="fg"><label>単価 (¥)</label><input type="number" value={entry.unit_price} onChange={e => patchEntry({ unit_price: e.target.value })} placeholder="0" style={inputStyle()} /></div>
+          <div className="fg">
+            <label>問番{section === 'postal' && <span style={{ color: 'var(--danger)' }}> 必須</span>}</label>
+            <input value={entry.tracking_no} onChange={e => patchEntry({ tracking_no: e.target.value })} style={inputStyle()} />
+          </div>
+          <div className="fg"><label>支払日</label><input type="date" value={entry.payment_date} onChange={e => patchEntry({ payment_date: e.target.value })} style={inputStyle()} /></div>
+          <div className="fg" style={{ gridColumn: 'span 2' }}><label>備考</label><input value={entry.remarks} onChange={e => patchEntry({ remarks: e.target.value })} style={inputStyle()} /></div>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end' }} onKeyDown={handleEntryKeyDown}>
+          <button onClick={confirmEntry} disabled={saving} style={{
+            padding: '9px 26px', background: col, color: '#fff', border: 'none', borderRadius: 'var(--radius-sm)',
+            fontSize: 13, fontWeight: 800, cursor: saving ? 'default' : 'pointer', opacity: saving ? 0.6 : 1,
+          }}>
+            ✓ 確定して追加
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
