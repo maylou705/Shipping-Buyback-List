@@ -5,13 +5,11 @@ import { createClient } from '@/lib/supabase'
 import { Shipment, Inbound, todayStr } from '@/lib/types'
 import Header from './Header'
 import Dashboard from './Dashboard'
-import ShipmentInput from './ShipmentInput'
-import InboundInput from './InboundInput'
 import ListView from './ListView'
 import Analytics from './Analytics'
 import InventoryImport from './InventoryImport'
 
-export type View = 'dashboard' | 'shipment' | 'inbound' | 'list' | 'analytics' | 'inventory'
+export type View = 'dashboard' | 'list' | 'analytics' | 'inventory'
 
 export default function AppShell() {
   const supabase = createClient()
@@ -56,10 +54,8 @@ export default function AppShell() {
     <div style={{ display:'grid', gridTemplateRows:'52px 1fr', minHeight:'100vh' }}>
       <Header view={view} setView={setView} />
       <div className="app-grid" style={{ display:'grid', gridTemplateColumns: '1fr', height:'calc(100vh - 52px)', overflow:'hidden' }}>
-        <main className="app-main" style={{ overflowY:'auto', padding: view === 'shipment' || view === 'inbound' ? '0' : '20px 24px' }}>
+        <main className="app-main" style={{ overflowY:'auto', padding: '20px 24px' }}>
           {view === 'dashboard' && <Dashboard {...props} />}
-          {view === 'shipment'  && <ShipmentInput {...props} setDate={setDate} />}
-          {view === 'inbound'   && <InboundInput {...props} setDate={setDate} />}
           {view === 'list'      && <ListView {...props} />}
           {view === 'analytics' && <Analytics {...props} />}
 {view === 'inventory' && <InventoryImport supabase={props.supabase} onImported={load} />}
