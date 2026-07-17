@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { Inbound, InbSection, INB_SECTION_LABEL, fmt, uid } from '@/lib/types'
 import { SupabaseClient } from '@supabase/supabase-js'
 import { createQuoteClient } from '@/lib/supabase'
@@ -26,6 +27,8 @@ interface DraftRow {
   remarks: string
 }
 
+interface SuggestPos { top: number; left: number; width: number }
+
 function inputStyle(extra?: React.CSSProperties): React.CSSProperties {
   return { width: '100%', fontSize: 12, padding: '3px 5px', background: '#fff', border: '1px solid #D8C270', borderRadius: 3, outline: 'none', color: '#333', ...extra }
 }
@@ -34,6 +37,7 @@ export default function InboundInput({ supabase, date, setDate, inbounds, reload
   const [products, setProducts] = useState<{ code: string; name: string; recore_pd_code?: string | null; grade?: string; unit_type?: string }[]>([])
   const [prodSearch, setProdSearch] = useState('')
   const [activeDraftId, setActiveDraftId] = useState<string | null>(null)
+  const [suggestPos, setSuggestPos] = useState<SuggestPos | null>(null)
   const [inventoryByPd, setInventoryByPd] = useState<Record<string, number>>({})
 
   useEffect(() => {
@@ -72,6 +76,7 @@ export default function InboundInput({ supabase, date, setDate, inbounds, reload
   const CELL: React.CSSProperties = { border: `1px solid ${col}`, padding: '4px 6px', fontSize: 12 }
   const TH: React.CSSProperties = { ...CELL, background: col, fontWeight: 700, textAlign: 'left', whiteSpace: 'nowrap', color: '#fff' }
   const TABLE_BG = SEC_BG[section]
+  const DRAFT_BG = `color-mix(in srgb, ${col} 13%, white)`
 
   const di = inbounds.filter(b => b.date === date)
   const secRows = di.filter(x => x.inb_section === section)
@@ -209,43 +214,28 @@ export default function InboundInput({ supabase, date, setDate, inbounds, reload
 
             {/* 入力中（未確定）の行 */}
             {drafts.map(d => (
-              <tr key={d._id} style={{ background: '#FFF9E0' }}>
-                <td style={{ ...CELL, position: 'sticky', left: 0, zIndex: 1, background: '#FFF9E0' }}>
+              <tr key={d._id} style={{ background: DRAFT_BG }}>
+                <td style={{ ...CELL, position: 'sticky', left: 0, zIndex: 1, background: DRAFT_BG }}>
                   <input value={d.company} onChange={e => updateDraft(d._id, { company: e.target.value })} style={inputStyle()} />
                 </td>
-                <td style={{ ...CELL, position: 'relative' }}>
+                <td style={CELL}>
                   <input
                     value={d.product_name}
-                    onChange={e => { updateDraft(d._id, { product_name: e.target.value }); setProdSearch(e.target.value); setActiveDraftId(d._id) }}
-                    onFocus={e => { setProdSearch(e.target.value); setActiveDraftId(d._id) }}
+                    onChange={e => {
+                      updateDraft(d._id, { product_name: e.target.value }); setProdSearch(e.target.value); setActiveDraftId(d._id)
+                      const r = e.target.getBoundingClientRect()
+                      setSuggestPos({ top: r.bottom + window.scrollY, left: r.left + window.scrollX, width: Math.max(r.width, 420) })
+                    }}
+                    onFocus={e => {
+                      setProdSearch(e.target.value); setActiveDraftId(d._id)
+                      const r = e.target.getBoundingClientRect()
+                      setSuggestPos({ top: r.bottom + window.scrollY, left: r.left + window.scrollX, width: Math.max(r.width, 420) })
+                    }}
+                    onBlur={() => setTimeout(() => setActiveDraftId(prev => (prev === d._id ? null : prev)), 150)}
                     onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); confirmDraft(d) } }}
                     placeholder="商品名またはコードで検索…"
                     style={inputStyle()}
                   />
-                  {activeDraftId === d._id && filtered.length > 0 && d.product_name === prodSearch && (
-                    <div style={{ position: 'absolute', top: '100%', left: 0, minWidth: 420, background: 'var(--surface)', border: '1.5px solid var(--inbound)', borderRadius: 'var(--radius-sm)', zIndex: 1000, boxShadow: '0 4px 12px rgba(0,0,0,.1)', maxHeight: 320, overflowY: 'auto' }}>
-                      {filtered.map(p => (
-                        <div key={p.code}
-                          onMouseDown={e => { e.preventDefault(); updateDraft(d._id, { product_name: p.name }); setProdSearch('') }}
-                          style={{ padding: '7px 12px', cursor: 'pointer', fontSize: 12, borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 10 }}
-                          onMouseEnter={e => (e.currentTarget.style.background = 'var(--inb-bg)')}
-                          onMouseLeave={e => (e.currentTarget.style.background = 'none')}
-                        >
-                          <span style={{ color: 'var(--text)', fontWeight: 600, flex: 1 }}>{p.name}</span>
-                          {getInventory(p.code) !== undefined && (
-                            <span style={{
-                              fontSize: 10, padding: '1px 6px', borderRadius: 8, whiteSpace: 'nowrap',
-                              background: getInventory(p.code)! > 0 ? 'var(--ov-bg)' : '#FEF2F2',
-                              color: getInventory(p.code)! > 0 ? 'var(--overseas)' : 'var(--danger)',
-                              border: `1px solid ${getInventory(p.code)! > 0 ? 'var(--ov-bd)' : '#FACACA'}`,
-                            }}>
-                              在庫 {getInventory(p.code)}
-                            </span>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
                 </td>
                 <td style={CELL}><input type="number" value={d.qty} onChange={e => updateDraft(d._id, { qty: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); confirmDraft(d) } }} style={inputStyle({ textAlign: 'right' })} /></td>
                 <td style={CELL}><input type="number" value={d.unit_price} onChange={e => updateDraft(d._id, { unit_price: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); confirmDraft(d) } }} style={inputStyle({ textAlign: 'right' })} /></td>
@@ -270,6 +260,40 @@ export default function InboundInput({ supabase, date, setDate, inbounds, reload
       <button onClick={addDraftRow} style={{ marginTop: 10, padding: '6px 14px', borderRadius: 'var(--radius-sm)', border: '1.5px dashed var(--border)', background: 'var(--surface)', color: 'var(--text2)', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
         + 行を追加
       </button>
+
+      {typeof window !== 'undefined' && activeDraftId && suggestPos && filtered.length > 0 && (() => {
+        const d = drafts.find(x => x._id === activeDraftId)
+        if (!d || d.product_name !== prodSearch) return null
+        return createPortal(
+          <div style={{
+            position: 'absolute', top: suggestPos.top, left: suggestPos.left, width: suggestPos.width,
+            background: 'var(--surface)', border: '1.5px solid var(--inbound)', borderRadius: 'var(--radius-sm)',
+            zIndex: 5000, boxShadow: '0 6px 20px rgba(0,0,0,.18)', maxHeight: 320, overflowY: 'auto',
+          }}>
+            {filtered.map(p => (
+              <div key={p.code}
+                onMouseDown={e => { e.preventDefault(); updateDraft(d._id, { product_name: p.name }); setProdSearch(''); setActiveDraftId(null) }}
+                style={{ padding: '7px 12px', cursor: 'pointer', fontSize: 12, borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 10 }}
+                onMouseEnter={e => (e.currentTarget.style.background = 'var(--inb-bg)')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+              >
+                <span style={{ color: 'var(--text)', fontWeight: 600, flex: 1 }}>{p.name}</span>
+                {getInventory(p.code) !== undefined && (
+                  <span style={{
+                    fontSize: 10, padding: '1px 6px', borderRadius: 8, whiteSpace: 'nowrap',
+                    background: getInventory(p.code)! > 0 ? 'var(--ov-bg)' : '#FEF2F2',
+                    color: getInventory(p.code)! > 0 ? 'var(--overseas)' : 'var(--danger)',
+                    border: `1px solid ${getInventory(p.code)! > 0 ? 'var(--ov-bd)' : '#FACACA'}`,
+                  }}>
+                    在庫 {getInventory(p.code)}
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>,
+          document.body
+        )
+      })()}
     </div>
   )
 }
