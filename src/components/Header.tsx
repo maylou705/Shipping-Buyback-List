@@ -3,8 +3,6 @@ import { View } from './AppShell'
 
 const NAVS: { v: View; label: string }[] = [
   { v: 'dashboard', label: 'ダッシュボード' },
-  { v: 'shipment',  label: '出荷入力' },
-  { v: 'inbound',   label: '入荷入力' },
   { v: 'list',      label: '一覧' },
   { v: 'analytics', label: '分析' },
   { v: 'inventory', label: '在庫' },
