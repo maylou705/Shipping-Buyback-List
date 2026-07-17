@@ -1,8 +1,9 @@
 'use client'
-import { useState, useRef, useEffect } from 'react'
-import { Shipment, Carrier, CARRIERS, CARRIER_COLOR, FEDEX_OPS, fmt, fmtDate, weekday, uid } from '@/lib/types'
+import { useState, useEffect, useRef } from 'react'
+import { Shipment, Carrier, CARRIERS, CARRIER_COLOR, FEDEX_OPS, fmt, uid } from '@/lib/types'
 import { SupabaseClient } from '@supabase/supabase-js'
 import { createQuoteClient } from '@/lib/supabase'
+import { buildPackGroups, Pack } from './PackGroupTable'
 
 interface Props {
   supabase: SupabaseClient
@@ -13,450 +14,331 @@ interface Props {
   inbounds?: { product_name: string; qty: number }[]
 }
 
-interface ItemRow { prod: string; qty: string; price: string; weight: string }
-interface PackGroup { packNo: number; done: boolean; items: ItemRow[]; track: string; recv: string; rem: string; freight: string; op: string }
-
-const mkItem = (): ItemRow => ({ prod: '', qty: '', price: '', weight: '0.3' })
-const mkPack = (n: number): PackGroup => ({ packNo: n, done: false, items: [mkItem()], track: '', recv: '', rem: '', freight: '', op: '' })
-
-function parseOrderLines(text: string) {
-  return text.split('\n').map(l => {
-    const m = l.match(/[¥￥]?([\d,]+)\s*[×xX×]\s*([\d,]+)/)
-    if (m) {
-      const price = parseInt(m[1].replace(/,/g, ''))
-      const qty   = parseInt(m[2].replace(/,/g, ''))
-      const label = l.replace(/[¥￥]?[\d,]+\s*[×xX×]\s*[\d,]+/, '').replace(/[-—–\s]+$/, '').trim()
-      return { label, price, qty, sub: price * qty }
-    }
-    return { label: l, price: 0, qty: 0, sub: 0 }
-  }).filter(r => r.label)
+interface DraftRow {
+  _id: string
+  pack_no: number
+  product_name: string
+  qty: string
+  unit_price: string
+  weight: string
+  tracking_no: string
+  recipient: string
+  agent: string
+  freight: string
+  op: string
+  inventory_note: string
 }
 
-interface ProductMaster { id: string; unit_type: string; short_code: string | null; recore_pd_code: string | null; grade: string }
+const CELL: React.CSSProperties = { border: '1px solid #E3CE86', padding: '4px 6px', fontSize: 12 }
+const TH: React.CSSProperties = { ...CELL, background: '#F6DE8B', fontWeight: 700, textAlign: 'left', whiteSpace: 'nowrap', color: '#5A4300' }
+function inputStyle(extra?: React.CSSProperties): React.CSSProperties {
+  return { width: '100%', fontSize: 12, padding: '3px 5px', background: '#fff', border: '1px solid #D8C270', borderRadius: 3, outline: 'none', color: '#333', ...extra }
+}
 
 export default function ShipmentInput({ supabase, date, setDate, shipments, reload, inbounds = [] }: Props) {
-  const [products, setProducts] = useState<{code: string; name: string; recore_pd_code?: string | null; grade?: string; unit_type?: string}[]>([])
-  const [productMaster, setProductMaster] = useState<ProductMaster[]>([])
+  const [products, setProducts] = useState<{ code: string; name: string; recore_pd_code?: string | null; grade?: string; unit_type?: string }[]>([])
   const [prodSearch, setProdSearch] = useState('')
+  const [activeDraftId, setActiveDraftId] = useState<string | null>(null)
   const [inventoryByPd, setInventoryByPd] = useState<Record<string, number>>({})
 
   useEffect(() => {
     const quote = createQuoteClient()
     quote.from('product_units').select('id, product_id, unit_type, short_code, grade, recore_pd_code').then(({ data: units }) => {
       if (units) {
-        const items = units
-          .filter((u: any) => u.short_code)
-          .map((u: any) => ({
-            code: u.short_code,
-            name: u.short_code,
-            recore_pd_code: u.recore_pd_code,
-            grade: u.grade,
-            unit_type: u.unit_type,
-          }))
-        setProducts(items)
-        setProductMaster(units as any)
+        setProducts(units.filter((u: any) => u.short_code).map((u: any) => ({
+          code: u.short_code, name: u.short_code, recore_pd_code: u.recore_pd_code, grade: u.grade, unit_type: u.unit_type,
+        })))
       }
     })
-    // 最新インポート日のデータのみ取得
     supabase.from('inventory').select('imported_at').order('imported_at', { ascending: false }).limit(1).then(({ data: latest }) => {
       if (!latest?.length) return
-      const latestDate = latest[0].imported_at
-      supabase.from('inventory').select('product_code, grade, qty').eq('imported_at', latestDate).then(({ data: inv }) => {
+      supabase.from('inventory').select('product_code, grade, qty').eq('imported_at', latest[0].imported_at).then(({ data: inv }) => {
         if (inv) {
-          const pdMap: Record<string, number> = {}
-          inv.forEach((r: any) => {
-            const key = `${r.product_code}__${r.grade}`
-            pdMap[key] = (pdMap[key] || 0) + r.qty
-          })
-          setInventoryByPd(pdMap)
+          const m: Record<string, number> = {}
+          inv.forEach((r: any) => { const k = `${r.product_code}__${r.grade}`; m[k] = (m[k] || 0) + r.qty })
+          setInventoryByPd(m)
         }
       })
     })
-  }, [])
+  }, [supabase])
 
-  const getInventory = (codeOrName: string, grade?: string): number | undefined => {
-    const unit = products.find(p => p.code === codeOrName && (grade ? p.grade === grade : true)) as any
+  const getInventory = (code: string, grade?: string): number | undefined => {
+    const unit = products.find(p => p.code === code && (grade ? p.grade === grade : true)) as any
     if (!unit?.recore_pd_code) return undefined
-    const gradeMap: Record<string, string> = {
-      '無印': 'シュリンク有',
-      'シュリンク無': 'シュリンク無',
-      '★シュリ': '★',
-      'ぺリなし': 'その他',
-    }
-    const recoreGrade = gradeMap[unit.grade] || unit.grade
-    const key = `${unit.recore_pd_code}__${recoreGrade}`
-    const qty = inventoryByPd[key]
-    return qty !== undefined ? qty : undefined
+    const gradeMap: Record<string, string> = { '無印': 'シュリンク有', 'シュリンク無': 'シュリンク無', '★シュリ': '★', 'ぺリなし': 'その他' }
+    const key = `${unit.recore_pd_code}__${gradeMap[unit.grade] || unit.grade}`
+    return inventoryByPd[key]
   }
 
   const filtered = prodSearch.length >= 1
-    ? products.filter(p =>
-        p.code.toLowerCase().includes(prodSearch.toLowerCase()) ||
-        p.name.toLowerCase().includes(prodSearch.toLowerCase())
-      ).slice(0, 8)
+    ? products.filter(p => p.code.toLowerCase().includes(prodSearch.toLowerCase()) || p.name.toLowerCase().includes(prodSearch.toLowerCase())).slice(0, 8)
     : []
 
-  const [carrier,    setCarrier]    = useState<Carrier>('FedEx')
-  const [domestic,   setDomestic]   = useState(false)
-  const [orderNote,  setOrderNote]  = useState('')
-  const [carryOver,  setCarryOver]  = useState('')
-  const [recvGlobal, setRecvGlobal] = useState('')
-  const [agentGlobal,setAgentGlobal]= useState('')
-  const [packs,      setPacks]      = useState<PackGroup[]>([mkPack(1)])
-  const [noteOpen,   setNoteOpen]   = useState(true)
-  const lastOpRef = useRef('')
-  const lastFrRef = useRef('')
-
-  // キャリアを切り替えたら入力中の梱包をリセット（別キャリアのデータが混ざるのを防ぐ）
-  useEffect(() => {
-    setPacks([mkPack(1)])
-  }, [carrier])
-
-  // スマホ幅では元オーダーメモを初期状態で閉じておく
-  useEffect(() => {
-    if (typeof window !== 'undefined' && window.innerWidth < 760) setNoteOpen(false)
-  }, [])
-
+  const [carrier, setCarrier] = useState<Carrier>('FedEx')
   const col = CARRIER_COLOR[carrier]
   const isFedex = carrier === 'FedEx'
-  const dayShips = shipments.filter(s => s.date === date && s.carrier === carrier)
 
-  const savedQtyMap: Record<string, number> = {}
-  dayShips.forEach(s => {
-    const k = (s.product_name || '').toLowerCase()
-    if (k) savedQtyMap[k] = (savedQtyMap[k] || 0) + (s.qty || 0)
-  })
+  const dayShips = shipments.filter(s => s.date === date && s.carrier === carrier)
+  const packs: Pack[] = buildPackGroups(dayShips)
 
   const inboundQtyMap: Record<string, number> = {}
-  inbounds.forEach(b => {
-    const k = (b.product_name || '').toLowerCase()
-    if (k) inboundQtyMap[k] = (inboundQtyMap[k] || 0) + (b.qty || 0)
+  inbounds.forEach(b => { const k = (b.product_name || '').toLowerCase(); if (k) inboundQtyMap[k] = (inboundQtyMap[k] || 0) + (b.qty || 0) })
+  const getInbound = (name: string) => {
+    const lower = name.toLowerCase(); let total = 0; let found = false
+    Object.entries(inboundQtyMap).forEach(([k, v]) => { if (k.includes(lower) || lower.includes(k)) { total += v; found = true } })
+    return found ? total : undefined
+  }
+  const getShipped = (name: string) => {
+    const lower = name.toLowerCase(); let total = 0; let found = false
+    dayShips.forEach(s => { const k = (s.product_name || '').toLowerCase(); if (k.includes(lower) || lower.includes(k)) { total += s.qty || 0; found = true } })
+    return found ? total : undefined
+  }
+
+  const nextPackNo = dayShips.length ? Math.max(...dayShips.map(s => s.pack_no)) : 0
+
+  const blankDraft = (carryFrom?: DraftRow): DraftRow => ({
+    _id: uid(),
+    pack_no: carryFrom ? carryFrom.pack_no : nextPackNo + 1,
+    product_name: '', qty: '', unit_price: '', weight: '0.3',
+    tracking_no: carryFrom?.tracking_no || '',
+    recipient: carryFrom?.recipient || '',
+    agent: carryFrom?.agent || '',
+    freight: carryFrom?.freight || '',
+    op: carryFrom?.op || '',
+    inventory_note: '',
   })
 
-  const getInbound = (codeOrName: string): number | undefined => {
-    const lower = codeOrName.toLowerCase()
-    let total = 0; let found = false
-    Object.entries(inboundQtyMap).forEach(([k, v]) => {
-      if (k.includes(lower) || lower.includes(k)) { total += v; found = true }
-    })
-    return found ? total : undefined
+  const [drafts, setDrafts] = useState<DraftRow[]>(() => [blankDraft()])
+
+  // キャリア・日付が変わったらドラフトをリセット（別キャリアのデータが混ざるのを防ぐ）
+  useEffect(() => {
+    setDrafts([blankDraft()])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [carrier, date])
+
+  const updateDraft = (id: string, patch: Partial<DraftRow>) => {
+    setDrafts(prev => prev.map(d => d._id === id ? { ...d, ...patch } : d))
   }
 
-  const getShipped = (codeOrName: string): number | undefined => {
-    const lower = codeOrName.toLowerCase()
-    let total = 0; let found = false
-    Object.entries(savedQtyMap).forEach(([k, v]) => {
-      if (k.includes(lower) || lower.includes(k)) { total += v; found = true }
-    })
-    return found ? total : undefined
-  }
-
-  const orderLines = parseOrderLines(orderNote)
-
-  const updatePack = (i: number, patch: Partial<PackGroup>) =>
-    setPacks(p => p.map((g, j) => j === i ? { ...g, ...patch } : g))
-  const updateItem = (pi: number, ii: number, patch: Partial<ItemRow>) =>
-    setPacks(p => p.map((g, j) => j !== pi ? g : { ...g, items: g.items.map((r, k) => k !== ii ? r : { ...r, ...patch }) }))
-  const addItem = (pi: number) =>
-    setPacks(p => p.map((g, j) => j !== pi ? g : { ...g, items: [...g.items, mkItem()] }))
-  const addPack = () => {
-    const max = Math.max(...packs.map(g => g.packNo))
-    setPacks(p => [...p, { ...mkPack(max + 1), op: lastOpRef.current, freight: lastFrRef.current }])
-  }
-  const dupPack = (pi: number) => {
-    const src = packs[pi]
-    const max = Math.max(...packs.map(g => g.packNo))
-    setPacks(p => [...p, { ...src, packNo: max + 1, done: false, track: '' }])
-  }
-  const savePack = async (pi: number) => {
-    const pack = packs[pi]
-    const recv = pack.recv || recvGlobal
-    const agent = agentGlobal
-    if (pack.op) lastOpRef.current = pack.op
-    if (pack.freight) lastFrRef.current = pack.freight
-    await supabase.from('shipments').delete().eq('date', date).eq('carrier', carrier).eq('pack_no', pack.packNo)
-    const rows = pack.items.filter(r => r.prod || +r.qty > 0)
-    if (!rows.length) { alert('商品を入力してください'); return }
-    await Promise.all(rows.map(r => supabase.from('shipments').insert({
-      id: uid(), date, carrier, pack_no: pack.packNo, domestic,
-      order_note: orderNote, carry_over: carryOver,
-      product_name: r.prod, qty: +r.qty || 0,
-      unit_price: +r.price || 0, weight: +r.weight || 0,
-      total_weight: (+r.qty || 0) * (+r.weight || 0),
-      tracking_no: pack.track, recipient: recv, agent,
-      remarks: pack.rem, send_op: isFedex ? pack.op : '',
-      freight: +pack.freight || 0,
-      amount: (+r.qty || 0) * (+r.price || 0),
-      invoice_no: '', inventory_note: '',
+  const committingRef = useRef<Set<string>>(new Set())
+  const commitDraft = async (d: DraftRow) => {
+    if (!d.product_name.trim() || committingRef.current.has(d._id)) return
+    committingRef.current.add(d._id)
+    const qty = +d.qty || 0
+    const unit_price = +d.unit_price || 0
+    const weight = +d.weight || 0
+    await supabase.from('shipments').insert({
+      date, carrier, pack_no: d.pack_no || nextPackNo + 1, domestic: false,
+      product_name: d.product_name.trim(), qty, unit_price, amount: qty * unit_price,
+      weight, total_weight: qty * weight,
+      tracking_no: d.tracking_no, recipient: d.recipient, agent: d.agent,
+      freight: +d.freight || 0, send_op: d.op,
+      remarks: '', invoice_no: '', inventory_note: d.inventory_note, order_note: '', carry_over: '',
       chk_liqoa: false, chk_pack: false,
-    })))
+    })
+    setDrafts(prev => {
+      const rest = prev.filter(x => x._id !== d._id)
+      return rest.length ? [...rest, blankDraft(d)] : [blankDraft(d)]
+    })
+    committingRef.current.delete(d._id)
     reload()
-    return true
   }
-  const completePack = async (pi: number) => {
-    const ok = await savePack(pi)
-    if (!ok) return
-    updatePack(pi, { done: true })
-    const hasNext = packs.some((g, j) => j !== pi && !g.done)
-    if (!hasNext) addPack()
+
+  const updateRow = async (id: string, patch: Record<string, any>) => {
+    await supabase.from('shipments').update(patch).eq('id', id)
+    reload()
   }
-  const packTotal = (pack: PackGroup) => {
-    const amt = pack.items.reduce((a, r) => a + (+r.qty || 0) * (+r.price || 0), 0)
-    const w   = pack.items.reduce((a, r) => a + (+r.qty || 0) * (+r.weight || 0), 0)
-    return { amt, w }
+  const updatePackFields = async (packNo: number, packDate: string, patch: Record<string, any>) => {
+    await supabase.from('shipments').update(patch).eq('carrier', carrier).eq('pack_no', packNo).eq('date', packDate)
+    reload()
   }
+  const delRow = async (id: string) => {
+    if (!confirm('この行を削除しますか？')) return
+    await supabase.from('shipments').delete().eq('id', id)
+    reload()
+  }
+  const delPack = async (packNo: number, packDate: string) => {
+    if (!confirm(`梱包${packNo}を削除しますか？`)) return
+    await supabase.from('shipments').delete().eq('carrier', carrier).eq('pack_no', packNo).eq('date', packDate)
+    reload()
+  }
+
+  const dayTotal = dayShips.reduce((a, s) => a + (s.amount || 0), 0)
 
   return (
-    <div className="shipment-grid" style={{ display: 'grid', gridTemplateColumns: '300px 1fr', height: 'calc(100vh - 52px)', overflow: 'hidden' }}>
-      <div className="shipment-side" style={{ background: 'var(--surface)', borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        <div style={{ padding: '8px 14px', borderBottom: '1px solid var(--border)', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-          <div className="fg"><label>宛先名</label><input value={recvGlobal} onChange={e => setRecvGlobal(e.target.value)} placeholder="会社名 / 個人名" /></div>
-          <div className="fg"><label>代行者名</label><input value={agentGlobal} onChange={e => setAgentGlobal(e.target.value)} placeholder="代行者名" /></div>
+    <div style={{ padding: '16px 18px' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 14, marginBottom: 14, flexWrap: 'wrap' }}>
+        <div className="fg" style={{ maxWidth: 170 }}>
+          <label>日付</label>
+          <input type="date" value={date} onChange={e => setDate?.(e.target.value)} />
         </div>
-        <div style={{ padding: noteOpen ? '10px 14px' : '8px 14px', borderBottom: '1px solid var(--border)', background: 'var(--ov-bg)' }}>
-          <div onClick={() => setNoteOpen(v => !v)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: noteOpen ? 8 : 0, cursor: 'pointer', userSelect: 'none' }}>
-            <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--overseas)', display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ fontSize: 9 }}>{noteOpen ? '▾' : '▸'}</span>
-              📋 元オーダー
-              {!noteOpen && orderNote && <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--text3)' }}>（入力あり）</span>}
-            </span>
-            {noteOpen && (
-              <span onClick={e => e.stopPropagation()} style={{ display: 'flex', border: '1.5px solid var(--ov-bd)', borderRadius: 20, overflow: 'hidden', fontSize: 11, fontWeight: 700 }}>
-                <button onClick={() => setDomestic(false)} style={{ padding: '3px 10px', border: 'none', cursor: 'pointer', background: !domestic ? 'var(--overseas)' : 'var(--ov-bg)', color: !domestic ? '#fff' : 'var(--overseas)' }}>海外</button>
-                <button onClick={() => setDomestic(true)}  style={{ padding: '3px 10px', border: 'none', cursor: 'pointer', background:  domestic ? 'var(--yamato)' : 'var(--yam-bg)', color:  domestic ? '#fff' : 'var(--yamato)' }}>国内</button>
-              </span>
-            )}
-          </div>
-          {noteOpen && (
-            <textarea value={orderNote} onChange={e => setOrderNote(e.target.value)} rows={8}
-              placeholder={'例:\nAbyss Eye  12,800×3\nNinja Spinner  11,400×120'}
-              style={{ width: '100%', background: 'var(--surface)', border: '1.5px solid var(--ov-bd)', borderRadius: 'var(--radius-sm)', padding: '8px 10px', fontSize: 12, lineHeight: 1.85, resize: 'none', outline: 'none', color: 'var(--text)', fontFamily: 'inherit' }}
-            />
-          )}
-        </div>
-        {noteOpen && (
-        <div style={{ flex: 1, overflowY: 'auto', fontSize: 12 }}>
-          {orderLines.length === 0
-            ? <div style={{ padding: '14px', fontSize: 11, color: 'var(--text3)', textAlign: 'center' }}>元オーダーを入力すると残数を表示</div>
-            : orderLines.map((line, i) => {
-                const done = (() => {
-                  let d = 0
-                  const lk = line.label.toLowerCase()
-                  Object.entries(savedQtyMap).forEach(([k, v]) => { if (lk && (k.includes(lk) || lk.includes(k))) d += v })
-                  return d
-                })()
-                const rem = Math.max(0, line.qty - done)
-                const pct = line.qty > 0 ? Math.min(100, Math.round(done / line.qty * 100)) : 0
-                const allDone = rem === 0 && done > 0
-                return (
-                  <div key={i} style={{ padding: '7px 14px', borderBottom: '1px solid var(--border)' }}>
-                    <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 4 }}>
-                      <span style={{ fontWeight: 600, flex: 1 }}>{line.label || '—'}</span>
-                      {line.qty > 0 && (
-                        <span style={{ whiteSpace: 'nowrap', marginLeft: 8, fontSize: 11 }}>
-                          <span style={{ color: 'var(--text2)' }}>{line.price.toLocaleString('ja-JP')}×{line.qty}</span>
-                        </span>
-                      )}
-                    </div>
-                    {line.qty > 0 && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <div style={{ flex: 1, height: 5, background: 'var(--border)', borderRadius: 3, overflow: 'hidden' }}>
-                          <div style={{ height: '100%', width: `${pct}%`, background: allDone ? 'var(--success)' : pct > 0 ? 'var(--overseas)' : 'var(--border)', borderRadius: 3, transition: '.3s' }} />
-                        </div>
-                        <span style={{ fontSize: 10, whiteSpace: 'nowrap', color: allDone ? 'var(--success)' : 'var(--text2)' }}>
-                          {allDone ? '✓ 完了' : done > 0 ? `済${done} / 残${rem}` : `${line.qty}個`}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                )
-              })
-          }
-        </div>
-        )}
-        <div style={{ borderTop: '1px solid var(--border)', padding: '10px 14px', background: '#FEFBEC' }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--warn)', marginBottom: 5 }}>⚠ 残り・持ち越し</div>
-          <textarea value={carryOver} onChange={e => setCarryOver(e.target.value)} rows={2}
-            placeholder="例: ninja 残91個→翌日"
-            style={{ width: '100%', background: 'var(--surface)', border: '1.5px solid #EEE098', borderRadius: 'var(--radius-sm)', padding: '6px 9px', fontSize: 12, resize: 'none', outline: 'none', color: 'var(--text)', fontFamily: 'inherit' }}
-          />
-        </div>
-      </div>
-
-      <div className="shipment-main" style={{ overflowY: 'auto', padding: '16px 18px' }}>
-        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 14, marginBottom: 14, flexWrap: 'wrap' }}>
-          <div className="fg" style={{ maxWidth: 170 }}>
-            <label>日付</label>
-            <input type="date" value={date} onChange={e => setDate?.(e.target.value)} />
-          </div>
-          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
           {CARRIERS.map(c => (
             <button key={c} onClick={() => setCarrier(c)} style={{
               padding: '6px 14px', borderRadius: 'var(--radius-sm)',
               border: `1.5px solid ${c === carrier ? CARRIER_COLOR[c] : 'var(--border)'}`,
-              background: c === carrier ? 'var(--sf2)' : 'var(--surface)',
+              background: c === carrier ? CARRIER_COLOR[c] + '22' : 'var(--surface)',
               color: c === carrier ? CARRIER_COLOR[c] : 'var(--text2)',
               fontSize: 12, fontWeight: 700, cursor: 'pointer',
-            }}>
-              {c}
-            </button>
+            }}>{c}</button>
           ))}
-          </div>
         </div>
+        <div style={{ marginLeft: 'auto', fontSize: 13, fontWeight: 800, color: col }}>
+          本日合計 ¥{fmt(dayTotal)}（{dayShips.length}件）
+        </div>
+      </div>
 
-        {packs.map((pack, pi) => {
-          const { amt, w } = packTotal(pack)
-          const savedRows = dayShips.filter(s => s.pack_no === pack.packNo)
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ borderCollapse: 'collapse', width: '100%', background: '#FFFBEF' }}>
+          <thead>
+            <tr>
+              <th style={{ ...TH, textAlign: 'center', width: 44 }}>梱包</th>
+              <th style={{ ...TH, minWidth: 200 }}>商品名</th>
+              <th style={{ ...TH, textAlign: 'right' }}>個数</th>
+              <th style={{ ...TH, textAlign: 'right' }}>単価</th>
+              <th style={{ ...TH, textAlign: 'right' }}>金額</th>
+              <th style={{ ...TH, textAlign: 'right' }}>重量</th>
+              <th style={TH}>問番</th>
+              <th style={{ ...TH, minWidth: 120 }}>宛先</th>
+              <th style={TH}>代行者名</th>
+              <th style={{ ...TH, textAlign: 'right' }}>送料</th>
+              {isFedex && <th style={TH}>発送OP</th>}
+              <th style={TH}>在庫内訳</th>
+              <th style={{ ...TH, width: 1 }}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {packs.map(pack => {
+              const first = pack.rows[0]
+              return pack.rows.map((r, ri) => (
+                <tr key={r.id}>
+                  {ri === 0 && (
+                    <td rowSpan={pack.rows.length} style={{ ...CELL, textAlign: 'center', verticalAlign: 'top', fontWeight: 800, color: col, background: '#FCEFC4' }}>
+                      {pack.packNo}
+                      <div>
+                        <button onClick={() => delPack(pack.packNo, first.date)} title="梱包削除"
+                          style={{ marginTop: 4, fontSize: 9, padding: '1px 4px', border: '1px solid #D8C270', borderRadius: 3, background: '#fff', cursor: 'pointer', color: '#a33' }}>✕</button>
+                      </div>
+                    </td>
+                  )}
+                  <td style={CELL}>
+                    <input defaultValue={r.product_name} onBlur={e => e.target.value !== r.product_name && updateRow(r.id, { product_name: e.target.value })} style={inputStyle()} />
+                  </td>
+                  <td style={CELL}>
+                    <input type="number" defaultValue={r.qty} onBlur={e => { const qty = +e.target.value || 0; if (qty !== r.qty) updateRow(r.id, { qty, amount: qty * (r.unit_price || 0), total_weight: qty * (r.weight || 0) }) }} style={inputStyle({ textAlign: 'right' })} />
+                  </td>
+                  <td style={CELL}>
+                    <input type="number" defaultValue={r.unit_price} onBlur={e => { const up = +e.target.value || 0; if (up !== r.unit_price) updateRow(r.id, { unit_price: up, amount: (r.qty || 0) * up }) }} style={inputStyle({ textAlign: 'right' })} />
+                  </td>
+                  <td style={{ ...CELL, textAlign: 'right', fontWeight: 700, color: col }}>¥{fmt(r.amount)}</td>
+                  <td style={CELL}>
+                    <input type="number" step="0.01" defaultValue={r.weight} onBlur={e => { const w = +e.target.value || 0; if (w !== r.weight) updateRow(r.id, { weight: w, total_weight: (r.qty || 0) * w }) }} style={inputStyle({ textAlign: 'right' })} />
+                  </td>
+                  {ri === 0 && (
+                    <>
+                      <td style={CELL} rowSpan={pack.rows.length}>
+                        <input defaultValue={first.tracking_no} onBlur={e => e.target.value !== first.tracking_no && updatePackFields(pack.packNo, first.date, { tracking_no: e.target.value })} style={inputStyle()} />
+                      </td>
+                      <td style={CELL} rowSpan={pack.rows.length}>
+                        <input defaultValue={first.recipient} onBlur={e => e.target.value !== first.recipient && updatePackFields(pack.packNo, first.date, { recipient: e.target.value })} style={inputStyle()} />
+                      </td>
+                      <td style={CELL} rowSpan={pack.rows.length}>
+                        <input defaultValue={first.agent} onBlur={e => e.target.value !== first.agent && updatePackFields(pack.packNo, first.date, { agent: e.target.value })} style={inputStyle()} />
+                      </td>
+                      <td style={CELL} rowSpan={pack.rows.length}>
+                        <input type="number" defaultValue={first.freight} onBlur={e => { const fr = +e.target.value || 0; if (fr !== first.freight) updatePackFields(pack.packNo, first.date, { freight: fr }) }} style={inputStyle({ textAlign: 'right' })} />
+                      </td>
+                      {isFedex && (
+                        <td style={CELL} rowSpan={pack.rows.length}>
+                          <select defaultValue={first.send_op} onBlur={e => e.target.value !== first.send_op && updatePackFields(pack.packNo, first.date, { send_op: e.target.value })} style={inputStyle()}>
+                            <option value="">選択</option>
+                            {FEDEX_OPS.map(o => <option key={o}>{o}</option>)}
+                          </select>
+                        </td>
+                      )}
+                    </>
+                  )}
+                  <td style={CELL}>
+                    <input defaultValue={r.inventory_note} onBlur={e => e.target.value !== r.inventory_note && updateRow(r.id, { inventory_note: e.target.value })} style={inputStyle()} />
+                  </td>
+                  <td style={{ ...CELL, textAlign: 'center' }}>
+                    <button onClick={() => delRow(r.id)} style={{ fontSize: 10, padding: '1px 5px', border: '1px solid #D8C270', borderRadius: 3, background: '#fff', cursor: 'pointer', color: '#a33' }}>✕</button>
+                  </td>
+                </tr>
+              ))
+            })}
 
-          if (pack.done) {
-            return (
-              <div key={pack.packNo} style={{ background: 'var(--surface)', border: '1.5px solid var(--border)', borderRadius: 'var(--radius)', marginBottom: 10, overflow: 'hidden' }}>
-                <div style={{ padding: '8px 14px', display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }} onClick={() => updatePack(pi, { done: false })}>
-                  <span style={{ fontSize: 12, fontWeight: 800, color: col }}>梱包 {pack.packNo}</span>
-                  <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 8, background: '#EDF8F3', color: '#16a34a', border: '1px solid #AADDC2' }}>✓ 完了</span>
-                  <span style={{ fontSize: 11, color: 'var(--text2)' }}>
-                    {savedRows.length}商品 / <strong style={{ color: col }}>¥{fmt(savedRows.reduce((a, r) => a + (r.amount || 0), 0))}</strong>
-                  </span>
-                  <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--text3)' }}>▶ 展開</span>
-                  <button onClick={e => { e.stopPropagation(); dupPack(pi) }} style={{ fontSize: 10, padding: '2px 8px', border: '1px solid var(--ov-bd)', borderRadius: 4, background: 'var(--ov-bg)', cursor: 'pointer', color: 'var(--overseas)' }}>複製</button>
-                </div>
-                <div style={{ padding: '0 14px 8px', display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                  {savedRows.map(r => (
-                    <span key={r.id} style={{ fontSize: 11, background: 'var(--sf2)', border: '1px solid var(--border)', borderRadius: 5, padding: '2px 8px', color: 'var(--text2)' }}>
-                      {r.product_name} ×{r.qty} <span style={{ color: col }}>¥{fmt((r.qty || 0) * (r.unit_price || 0))}</span>
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )
-          }
-
-          return (
-            <div key={pack.packNo} style={{ background: 'var(--surface)', border: `2px solid ${col}`, borderRadius: 'var(--radius)', marginBottom: 12, overflow: 'visible', boxShadow: '0 2px 10px rgba(0,0,0,.06)' }}>
-              <div style={{ background: 'var(--sf2)', borderBottom: '1px solid var(--border)', padding: '8px 14px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 13, fontWeight: 800, color: col }}>梱包 {pack.packNo}</span>
-                {(amt > 0 || w > 0) && (() => {
-                  const totalQty = pack.items.reduce((a, r) => a + (+r.qty || 0), 0)
-                  return (
-                    <span style={{ fontSize: 11, color: 'var(--text2)' }}>
-                      {totalQty > 0 && <strong style={{ color: col, marginRight: 6 }}>{fmt(totalQty)}点</strong>}
-                      商品計 <strong style={{ color: col }}>¥{fmt(amt)}</strong> / {w.toFixed(2)}kg
-                    </span>
-                  )
-                })()}
-                {packs.length > 1 && (
-                  <button onClick={() => setPacks(p => p.filter((_, j) => j !== pi))} style={{ marginLeft: 'auto', fontSize: 10, padding: '2px 8px', border: '1px solid var(--border)', borderRadius: 4, background: 'none', cursor: 'pointer', color: 'var(--text3)' }}>削除</button>
-                )}
-              </div>
-
-              <div style={{ padding: '10px 14px', display: 'grid', gridTemplateColumns: `1fr 1fr 1fr 80px${isFedex ? ' 2fr' : ''}`, gap: 10, borderBottom: '1px solid var(--border)' }}>
-                <div className="fg"><label>問番</label><input value={pack.track} onChange={e => updatePack(pi, { track: e.target.value })} placeholder="追跡番号" /></div>
-                <div className="fg">
-                  <label>宛先名 <span style={{ fontSize: 9, color: 'var(--text3)' }}>空=左パネル</span></label>
-                  <input value={pack.recv} onChange={e => updatePack(pi, { recv: e.target.value })} placeholder="上書きのみ" />
-                </div>
-                <div className="fg"><label>備考</label><input value={pack.rem} onChange={e => updatePack(pi, { rem: e.target.value })} placeholder="備考" /></div>
-                <div className="fg"><label>送料 (¥)</label><input type="number" value={pack.freight} onChange={e => { updatePack(pi, { freight: e.target.value }); lastFrRef.current = e.target.value }} placeholder="0" /></div>
+            {drafts.map(d => (
+              <tr key={d._id} style={{ background: '#FFF9E0' }}
+                onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) commitDraft(d) }}>
+                <td style={CELL}>
+                  <input type="number" value={d.pack_no} onChange={e => updateDraft(d._id, { pack_no: +e.target.value || 1 })} style={inputStyle({ textAlign: 'center' })} />
+                </td>
+                <td style={{ ...CELL, position: 'relative' }}>
+                  <input
+                    value={d.product_name}
+                    onChange={e => { updateDraft(d._id, { product_name: e.target.value }); setProdSearch(e.target.value); setActiveDraftId(d._id) }}
+                    onFocus={e => { setProdSearch(e.target.value); setActiveDraftId(d._id) }}
+                    placeholder="商品名またはコードで検索…"
+                    style={inputStyle()}
+                  />
+                  {activeDraftId === d._id && filtered.length > 0 && d.product_name === prodSearch && (
+                    <div style={{ position: 'absolute', top: '100%', left: 0, minWidth: 480, background: 'var(--surface)', border: '1.5px solid var(--overseas)', borderRadius: 'var(--radius-sm)', zIndex: 1000, boxShadow: '0 4px 12px rgba(0,0,0,.1)', maxHeight: 320, overflowY: 'auto' }}>
+                      {filtered.map(p => (
+                        <div key={p.code}
+                          onMouseDown={e => { e.preventDefault(); updateDraft(d._id, { product_name: p.name }); setProdSearch('') }}
+                          style={{ padding: '7px 12px', cursor: 'pointer', fontSize: 12, borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 8 }}
+                          onMouseEnter={e => (e.currentTarget.style.background = 'var(--ov-bg)')}
+                          onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+                        >
+                          <span style={{ fontWeight: 600, color: 'var(--text)', flex: 1 }}>{p.name}</span>
+                          <span style={{ fontSize: 10, color: 'var(--text3)', whiteSpace: 'nowrap', background: 'var(--sf2)', padding: '1px 6px', borderRadius: 4 }}>
+                            {p.unit_type}{p.grade && p.grade !== '無印' ? ` / ${p.grade}` : ''}
+                          </span>
+                          {(() => {
+                            const inv = getInventory(p.code, p.grade)
+                            return inv !== undefined ? (
+                              <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 8, whiteSpace: 'nowrap', background: inv > 0 ? 'var(--ov-bg)' : '#FEF2F2', color: inv > 0 ? 'var(--overseas)' : 'var(--danger)', border: `1px solid ${inv > 0 ? 'var(--ov-bd)' : '#FACACA'}` }}>在庫 {inv}</span>
+                            ) : null
+                          })()}
+                          {getInbound(p.name) !== undefined && (
+                            <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 8, whiteSpace: 'nowrap', background: 'var(--inb-bg)', color: 'var(--inbound)', border: '1px solid var(--inb-bd)' }}>入荷 {getInbound(p.name)}</span>
+                          )}
+                          {getShipped(p.name) !== undefined && (
+                            <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 8, whiteSpace: 'nowrap', background: 'var(--yam-bg)', color: 'var(--yamato)', border: '1px solid var(--yam-bd)' }}>出荷済 {getShipped(p.name)}</span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </td>
+                <td style={CELL}><input type="number" value={d.qty} onChange={e => updateDraft(d._id, { qty: e.target.value })} style={inputStyle({ textAlign: 'right' })} /></td>
+                <td style={CELL}><input type="number" value={d.unit_price} onChange={e => updateDraft(d._id, { unit_price: e.target.value })} style={inputStyle({ textAlign: 'right' })} /></td>
+                <td style={{ ...CELL, textAlign: 'right', color: 'var(--text3)' }}>¥{fmt((+d.qty || 0) * (+d.unit_price || 0))}</td>
+                <td style={CELL}><input type="number" step="0.01" value={d.weight} onChange={e => updateDraft(d._id, { weight: e.target.value })} style={inputStyle({ textAlign: 'right' })} /></td>
+                <td style={CELL}><input value={d.tracking_no} onChange={e => updateDraft(d._id, { tracking_no: e.target.value })} style={inputStyle()} /></td>
+                <td style={CELL}><input value={d.recipient} onChange={e => updateDraft(d._id, { recipient: e.target.value })} style={inputStyle()} /></td>
+                <td style={CELL}><input value={d.agent} onChange={e => updateDraft(d._id, { agent: e.target.value })} style={inputStyle()} /></td>
+                <td style={CELL}><input type="number" value={d.freight} onChange={e => updateDraft(d._id, { freight: e.target.value })} style={inputStyle({ textAlign: 'right' })} /></td>
                 {isFedex && (
-                  <div className="fg">
-                    <label>発送OP</label>
-                    <select value={pack.op} onChange={e => { updatePack(pi, { op: e.target.value }); lastOpRef.current = e.target.value }}>
+                  <td style={CELL}>
+                    <select value={d.op} onChange={e => updateDraft(d._id, { op: e.target.value })} style={inputStyle()}>
                       <option value="">選択</option>
                       {FEDEX_OPS.map(o => <option key={o}>{o}</option>)}
                     </select>
-                  </div>
+                  </td>
                 )}
-              </div>
-
-              {pack.items.map((item, ii) => (
-                <div key={ii} style={{ display: 'grid', gridTemplateColumns: '2fr 60px 80px 70px 80px', gap: 6, padding: '8px 14px', borderBottom: '1px solid var(--border)', alignItems: 'end' }}>
-                  <div className="fg" style={{ position: 'relative' }}>
-                    <label>{ii === 0 ? '商品名' : `商品名 ${ii + 1}`}</label>
-                    <input
-                      value={item.prod}
-                      onChange={e => { updateItem(pi, ii, { prod: e.target.value }); setProdSearch(e.target.value) }}
-                      onFocus={e => setProdSearch(e.target.value)}
-                      onBlur={() => setTimeout(() => setProdSearch(''), 200)}
-                      placeholder="商品名またはコードで検索..."
-                    />
-                    {filtered.length > 0 && item.prod === prodSearch && (
-                      <div style={{ position: 'absolute', top: '100%', left: 0, minWidth: 480, background: 'var(--surface)', border: '1.5px solid var(--overseas)', borderRadius: 'var(--radius-sm)', zIndex: 1000, boxShadow: '0 4px 12px rgba(0,0,0,.1)', maxHeight: 320, overflowY: 'auto' }}>
-                        {filtered.map(p => (
-                          <div key={p.code}
-                            onMouseDown={() => { updateItem(pi, ii, { prod: p.name }); setProdSearch('') }}
-                            style={{ padding: '7px 12px', cursor: 'pointer', fontSize: 12, borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 8 }}
-                            onMouseEnter={e => (e.currentTarget.style.background = 'var(--ov-bg)')}
-                            onMouseLeave={e => (e.currentTarget.style.background = 'none')}
-                          >
-                            <span style={{ fontWeight: 600, color: 'var(--text)', flex: 1 }}>{p.name}</span>
-                            <span style={{ fontSize: 10, color: 'var(--text3)', whiteSpace: 'nowrap', background: 'var(--sf2)', padding: '1px 6px', borderRadius: 4 }}>
-                              {p.unit_type}{p.grade && p.grade !== '無印' ? ` / ${p.grade}` : ''}
-                            </span>
-                            {(() => {
-                              const inv = getInventory(p.code, p.grade)
-                              return inv !== undefined ? (
-                                <span style={{
-                                  fontSize: 10, padding: '1px 6px', borderRadius: 8, whiteSpace: 'nowrap',
-                                  background: inv > 0 ? 'var(--ov-bg)' : '#FEF2F2',
-                                  color: inv > 0 ? 'var(--overseas)' : 'var(--danger)',
-                                  border: `1px solid ${inv > 0 ? 'var(--ov-bd)' : '#FACACA'}`,
-                                }}>
-                                  在庫 {inv}
-                                </span>
-                              ) : null
-                            })()}
-                            {getInbound(p.name) !== undefined && (
-                              <span style={{
-                                fontSize: 10, padding: '1px 6px', borderRadius: 8, whiteSpace: 'nowrap',
-                                background: 'var(--inb-bg)', color: 'var(--inbound)',
-                                border: '1px solid var(--inb-bd)',
-                              }}>
-                                入荷 {getInbound(p.name)}
-                              </span>
-                            )}
-                            {getShipped(p.name) !== undefined && (
-                              <span style={{
-                                fontSize: 10, padding: '1px 6px', borderRadius: 8, whiteSpace: 'nowrap',
-                                background: 'var(--yam-bg)', color: 'var(--yamato)',
-                                border: '1px solid var(--yam-bd)',
-                              }}>
-                                出荷済 {getShipped(p.name)}
-                              </span>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  <div className="fg"><label>個数</label><input type="number" value={item.qty} onChange={e => updateItem(pi, ii, { qty: e.target.value })} placeholder="0" /></div>
-                  <div className="fg"><label>単価 (¥)</label><input type="number" value={item.price} onChange={e => updateItem(pi, ii, { price: e.target.value })} placeholder="0" /></div>
-                  <div className="fg"><label>重量 (kg)</label><input type="number" value={item.weight} onChange={e => updateItem(pi, ii, { weight: e.target.value })} step="0.01" placeholder="0.3" /></div>
-                  <div className="fg">
-                    <label>小計 <span style={{ fontSize: 9, color: 'var(--text3)' }}>自動</span></label>
-                    <input readOnly value={(+item.qty || 0) * (+item.price || 0) || ''} style={{ background: 'var(--sf2)', color: col, fontWeight: 700, borderStyle: 'dashed' }} />
-                  </div>
-                </div>
-              ))}
-
-              <div style={{ padding: '8px 14px', display: 'flex', alignItems: 'center', gap: 10, background: 'var(--sf2)', borderTop: '1px solid var(--border)' }}>
-                <button onClick={() => addItem(pi)} style={{ fontSize: 11, padding: '4px 12px', border: '1.5px dashed var(--border2)', borderRadius: 'var(--radius-sm)', background: 'none', cursor: 'pointer', color: 'var(--text2)', whiteSpace: 'nowrap' }}>
-                  ＋ 商品行を追加
-                </button>
-                <span style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <button onClick={() => updatePack(pi, { items: [mkItem()], track: '', recv: '', rem: '' })} className="btn btn-outline btn-sm">クリア</button>
-                  <button onClick={() => completePack(pi)} style={{ padding: '8px 22px', background: col, color: '#fff', border: 'none', borderRadius: 'var(--radius-sm)', fontSize: 13, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                    保存
-                  </button>
-                </span>
-              </div>
-            </div>
-          )
-        })}
-
-        <button onClick={addPack} style={{ width: '100%', padding: 10, border: '2px dashed var(--border2)', borderRadius: 'var(--radius)', background: 'none', color: 'var(--text2)', fontSize: 12, fontWeight: 700, cursor: 'pointer', marginBottom: 14 }}>
-          ＋ 梱包を追加
-        </button>
+                <td style={CELL}><input value={d.inventory_note} onChange={e => updateDraft(d._id, { inventory_note: e.target.value })} style={inputStyle()} /></td>
+                <td style={CELL}></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
+
+      <button onClick={() => setDrafts(prev => [...prev, blankDraft(prev[prev.length - 1])])} style={{ marginTop: 10, padding: '6px 14px', borderRadius: 'var(--radius-sm)', border: '1.5px dashed var(--border)', background: 'var(--surface)', color: 'var(--text2)', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+        + 行を追加
+      </button>
     </div>
   )
 }
