@@ -95,13 +95,19 @@ export default function InboundWorkPanel({ supabase, date, di, reload, products,
     setSavingId(d._id)
     const qty = +d.qty || 0
     const unit_price = +d.unit_price || 0
-    await supabase.from('inbounds').insert({
+    const { error } = await supabase.from('inbounds').insert({
       date, inb_section: section, arrived: false, chk_liqoa: false,
       company: d.company, product_name: d.product_name.trim(),
       qty, unit_price, amount: qty * unit_price,
       tracking_no: d.tracking_no, payment_date: d.payment_date || null,
       remarks: d.remarks, recore_no: '',
     })
+    if (error) {
+      console.error('inbound insert error', error)
+      alert('保存に失敗しました: ' + error.message)
+      setSavingId(null)
+      return
+    }
     setDrafts(prev => {
       const rest = prev.filter(x => x._id !== d._id)
       return rest.length ? rest : [blankDraft(d)]
@@ -111,12 +117,14 @@ export default function InboundWorkPanel({ supabase, date, di, reload, products,
   }
 
   const updateRow = async (id: string, patch: Record<string, any>) => {
-    await supabase.from('inbounds').update(patch).eq('id', id)
+    const { error } = await supabase.from('inbounds').update(patch).eq('id', id)
+    if (error) { console.error('inbound update error', error); alert('更新に失敗しました: ' + error.message); return }
     reload()
   }
   const delRow = async (id: string) => {
     if (!confirm('この行を削除しますか？')) return
-    await supabase.from('inbounds').delete().eq('id', id)
+    const { error } = await supabase.from('inbounds').delete().eq('id', id)
+    if (error) { console.error('inbound delete error', error); alert('削除に失敗しました: ' + error.message); return }
     reload()
   }
 
